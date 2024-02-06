@@ -1,0 +1,18 @@
+FROM python:3.9
+
+# Install necessary packages for ChromeDriver
+RUN apt-get update && apt-get install -y \
+    chromium-driver 
+
+WORKDIR /app
+
+
+COPY app/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Install requests library explicitly
+RUN pip install requests google-auth-oauthlib
+
+COPY app/ .
+
+CMD ["python", "application.py"]
