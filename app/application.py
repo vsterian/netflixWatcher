@@ -1,32 +1,146 @@
+"""Module providing confirmation for Netflix Household update"""
+import imaplib
+import email
+import re
+import time
 import os
-import logging
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
+from selenium import webdriver
+from selenium.webdriver import Keys
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 
-# OAuth2 credentials
-SCOPES = ['https://mail.google.com/']
+NETFLIX_LOGIN = "laurentiusabin5@gmail.com"
+NETFLIX_PASSWORD = "vodafone@4"
+EMAIL_IMAP = "imap.gmail.com"
+EMAIL_LOGIN = "vladuttzzz@gmail.com"
+EMAIL_PASSWORD = "hlnd mpxz ymwk ijub"
+NETFLIX_EMAIL_SENDER = "info@account.netflix.com"
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def get_auth_url():
-    try:
-        # Create flow instance using client ID and client secret
-        flow = InstalledAppFlow.from_client_secrets_file(
-            'credentials.json',
-            scopes=SCOPES,
-            redirect_uri='urn:ietf:wg:oauth:2.0:oob')
-        
-        # Fetch the authorization URL
-        auth_url, _ = flow.authorization_url(prompt='consent')
+def extract_links(text):
+    """Finds all https links"""
+    url_pattern = r'https?://\S+'
+    urls = re.findall(url_pattern, text)
+    return urls
 
-        # Print the URL for the user to visit and authorize
-        logging.info(f"Authorization URL: {auth_url}")
 
-        
-    except Exception as e:
-        logging.error(f"Failed to get authorization URL: {e}")
+def open_link_with_selenium(body):
+    """Opens Selenium, logins to Netflix and clicks a button to confirm connection"""
+    print("Opening Selenium WebDriver...")
+    links = extract_links(body)
+    for link in links:
+        if "update-primary-location" in link:
+            print("Found update link:", link)
+            options = webdriver.ChromeOptions()
+            options.add_argument("--headless")
+            driver = webdriver.Chrome(options=options)
+            try:
+                driver.get(link)
+                print("Opened link:", link)
+                time.sleep(2)  # Ensure page is loaded
+
+                # Log in
+                email_field = driver.find_element('name', 'userLoginId')
+                email_field.send_keys(NETFLIX_LOGIN)
+                print("Filled in Netflix email:", NETFLIX_LOGIN)
+                password_field = driver.find_element('name', 'password')
+                password_field.send_keys(NETFLIX_PASSWORD)
+                print("Filled in Netflix password")
+                password_field.send_keys(Keys.RETURN)
+                print("Pressed Enter to log in")
+                time.sleep(2)
+
+                def check_button_or_message(driver):
+                    try:
+                        # Check if the "Set Primary Location" button exists
+                        button = driver.find_element(By.CSS_SELECTOR, '[data-uia="set-primary-location-action"]')
+                        if button.is_displayed() and button.is_enabled():
+                            return True
+                    except:
+                        pass
+
+                    try:
+                        # Check if the message indicating an invalid link exists
+                        message = driver.find_element(By.XPATH, '//h1[text()="This link is no longer valid"]')
+                        if message.is_displayed():
+                            return True
+                    except:
+                        pass
+
+                    return False
+
+                try:
+                    element = WebDriverWait(driver, 10).until(check_button_or_message)
+                    if element:
+                        if "This link is no longer valid" in driver.page_source:
+                            print("The link is no longer valid.")
+                            return "This link is no longer valid", driver.page_source
+                        else:
+                            print("Located 'Set Primary Location' button")
+                            element.click()
+                            print("Clicked 'Set Primary Location' button")
+                except TimeoutException as exception:
+                    print("Timeout waiting for 'Set Primary Location' button or invalid link message:", exception)
+                    return "Timeout waiting for 'Set Primary Location' button or invalid link message", driver.page_source
+            except Exception as e:
+                print(f"An error occurred while processing the link: {e}")
+                return f"An error occurred while processing the link: {e}", driver.page_source
+            finally:
+                driver.quit()
+
+
+def fetch_last_unseen_email():
+    """Gets body of last unseen mail from inbox"""
+    print("Fetching last unseen email...")
+    
+
+    # Connect to Gmail
+    mail = imaplib.IMAP4_SSL('imap.gmail.com')
+    mail.login(EMAIL_LOGIN, EMAIL_PASSWORD)
+    mail.select('inbox')
+    print("Authenticated with Gmail Account.")
+
+    # Search for unread messages from Netflix
+    result, data = mail.search(None, f'(UNSEEN FROM "{NETFLIX_EMAIL_SENDER}")')
+
+    # Process messages
+    if result == 'OK':
+        message_ids = data[0].split()
+        print("Found {} unread messages from Netflix.".format(len(message_ids)))
+        for message_id in message_ids:
+            result, message_data = mail.fetch(message_id, '(RFC822)')
+            if result == 'OK':
+                raw_email = message_data[0][1]
+                msg = email.message_from_bytes(raw_email)
+                subject = msg['Subject']
+                print("Subject:", subject)
+                if subject.startswith("Important: How to update your Netflix Household"):
+                    print("Email identified as relevant.")
+                                       
+                    body = None
+                    for part in msg.walk():
+                        if part.get_content_type() == "text/plain":
+                            body = part.get_payload(decode=True).decode(part.get_content_charset())
+                            print("Extracted email body.")
+                            mail.store(message_id, '+FLAGS', '\Seen')
+                            open_link_with_selenium(body)
+                            break
+                    if body:
+                        break
+    else:
+        print("No relevant email found or processed.")
+
+    # Close connection
+    mail.close()
+    mail.logout()
+
+    
+
+
 
 if __name__ == "__main__":
-    get_auth_url()
+    while True:
+        fetch_last_unseen_email()
+        time.sleep(20)
