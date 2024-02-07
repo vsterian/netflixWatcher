@@ -1,18 +1,30 @@
-FROM python:3.9
+# Use Ubuntu 20.04 as base image
+FROM ubuntu:20.04
+
+# Set environment variable to prevent tzdata asking for geographic area
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install necessary packages for ChromeDriver
-RUN apt-get update && apt-get install -y \
-    chromium-driver 
+RUN apt-get update && \
+    apt-get -y install gcc build-essential wget sudo curl unzip && \
+    apt-get -y install python3-pip #python3.9 python3.9-dev
 
+# Install Chromium and ChromeDriver
+RUN apt-get install -y chromium-chromedriver && \
+    if [ ! -f /usr/bin/chromedriver ]; then ln -s /usr/lib/chromium-browser/chromedriver /usr/bin/chromedriver; fi
+
+# Set work directory
 WORKDIR /app
 
-
+# Copy requirements and install dependencies
 COPY app/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Install requests library explicitly
 RUN pip install requests google-auth-oauthlib
 
+# Copy app files
 COPY app/ .
 
+# Set command
 CMD ["python", "application.py"]
