@@ -1,30 +1,27 @@
-# Use Ubuntu 20.04 as base image
-FROM ubuntu:20.04
+# Use a light Windows base image
+FROM mcr.microsoft.com/windows:1809
 
-# Set environment variable to prevent tzdata asking for geographic area
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install necessary packages for ChromeDriver
-RUN apt-get update && \
-    apt-get -y install gcc build-essential wget sudo curl unzip && \
-    apt-get -y install python3-pip #python3.9 python3.9-dev
-
-# Install Chromium and ChromeDriver
-RUN apt-get install -y chromium-chromedriver && \
-    if [ ! -f /usr/bin/chromedriver ]; then ln -s /usr/lib/chromium-browser/chromedriver /usr/bin/chromedriver; fi
-
-# Set work directory
+# Set the working directory
 WORKDIR /app
 
-# Copy requirements and install dependencies
+
+# Step 1: Install Python
+COPY Setup/installpython.ps1 C:/Setup/
+RUN powershell -Command "Set-ExecutionPolicy Unrestricted -Scope Process; C:/Setup/installpython.ps1"
+RUN powershell -Command "python.exe -m pip install --upgrade pip"
+
+# Step 2: Install Chrome
+COPY Setup/installchrome.ps1 C:/Setup/
+RUN powershell -Command "Set-ExecutionPolicy Unrestricted -Scope Process; C:/Setup/installchrome.ps1"
+
+# Step 3: Copy the requirements.txt file and install the Python libraries
 COPY app/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
-# Install requests library explicitly
-RUN pip install requests google-auth-oauthlib
+# Install Python libraries
+RUN pip install -r requirements.txt
 
-# Copy app files
+# Copy the application files
 COPY app/ .
 
-# Set command
+# Start the main script when the container starts
 CMD ["python", "application.py"]

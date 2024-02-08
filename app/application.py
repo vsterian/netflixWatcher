@@ -10,6 +10,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
+from selenium.webdriver.chrome.service import Service
 
 NETFLIX_LOGIN = "laurentiusabin5@gmail.com"
 NETFLIX_PASSWORD = "vodafone@4"
@@ -34,9 +35,10 @@ def open_link_with_selenium(body):
     for link in links:
         if "update-primary-location" in link:
             print("Found update link:", link)
+            service = Service()
             options = webdriver.ChromeOptions()
             options.add_argument("--headless")
-            driver = webdriver.Chrome(options=options)
+            driver = webdriver.Chrome(options=options,service=service)
             try:
                 driver.get(link)
                 print("Opened link:", link)
