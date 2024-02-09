@@ -89,7 +89,7 @@ def open_link_with_selenium(body):
                 retry_count = 3  # Number of times to retry clicking the button
                 for _ in range(retry_count):
                     try:
-                        element = WebDriverWait(driver, 3).until(check_button_or_message)
+                        element = WebDriverWait(driver, 10).until(check_button_or_message)
                         if element:
                             if "This link is no longer valid" in driver.page_source:
                                 print("The link is no longer valid.")
