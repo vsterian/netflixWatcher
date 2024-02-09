@@ -25,3 +25,4 @@ COPY app/ .
 
 # Start the main script when the container starts
 CMD ["python", "application.py"]
+

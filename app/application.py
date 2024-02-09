@@ -11,6 +11,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.service import Service
+from selenium.common.exceptions import NoSuchElementException
+
 
 NETFLIX_LOGIN = "laurentiusabin5@gmail.com"
 NETFLIX_PASSWORD = "vodafone@4"
@@ -38,41 +40,51 @@ def open_link_with_selenium(body):
             service = Service()
             options = webdriver.ChromeOptions()
             options.add_argument("--headless")
-            driver = webdriver.Chrome(options=options,service=service)
+            driver = webdriver.Chrome(options=options, service=service)
             try:
                 driver.get(link)
                 print("Opened link:", link)
                 time.sleep(2)  # Ensure page is loaded
 
-                # Log in
-                email_field = driver.find_element('name', 'userLoginId')
-                email_field.send_keys(NETFLIX_LOGIN)
-                print("Filled in Netflix email:", NETFLIX_LOGIN)
-                password_field = driver.find_element('name', 'password')
-                password_field.send_keys(NETFLIX_PASSWORD)
-                print("Filled in Netflix password")
-                password_field.send_keys(Keys.RETURN)
-                print("Pressed Enter to log in")
-                time.sleep(2)
+                # Check if login fields exist
+                try:
+                    email_field = driver.find_element('name', 'userLoginId')
+                    password_field = driver.find_element('name', 'password')
+                except NoSuchElementException:
+                    print("Login fields not found. Assuming already logged in.")
+                    pass
+                    # Proceed to the next part where the code will press the button
+                    # (implement this part of the code)
+
+                else:
+                    # Log in
+                    email_field.send_keys(NETFLIX_LOGIN)
+                    print("Filled in Netflix email:", NETFLIX_LOGIN)
+                    password_field.send_keys(NETFLIX_PASSWORD)
+                    print("Filled in Netflix password")
+                    password_field.send_keys(Keys.RETURN)
+                    print("Pressed Enter to log in")
+                    time.sleep(2)
 
                 def check_button_or_message(driver):
                     try:
                         # Check if the "Set Primary Location" button exists
                         button = driver.find_element(By.CSS_SELECTOR, '[data-uia="set-primary-location-action"]')
                         if button.is_displayed() and button.is_enabled():
-                            return True
-                    except:
+                            return button  # Return the element itself if found
+                    except NoSuchElementException:
                         pass
 
                     try:
                         # Check if the message indicating an invalid link exists
                         message = driver.find_element(By.XPATH, '//h1[text()="This link is no longer valid"]')
                         if message.is_displayed():
-                            return True
-                    except:
+                            return message  # Return the element itself if found
+                    except NoSuchElementException:
                         pass
 
-                    return False
+                    return None  # Return None if neither the button nor the message is found
+
 
                 try:
                     element = WebDriverWait(driver, 10).until(check_button_or_message)
@@ -94,50 +106,65 @@ def open_link_with_selenium(body):
                 driver.quit()
 
 
+
 def fetch_last_unseen_email():
     """Gets body of last unseen mail from inbox"""
     print("Fetching last unseen email...")
-    
+    while True:
+        try:
+            # Connect to Gmail
+            mail = imaplib.IMAP4_SSL('imap.gmail.com')
+            mail.login(EMAIL_LOGIN, EMAIL_PASSWORD)
+            mail.select('inbox')
+            print("Authenticated with Gmail Account.")
 
-    # Connect to Gmail
-    mail = imaplib.IMAP4_SSL('imap.gmail.com')
-    mail.login(EMAIL_LOGIN, EMAIL_PASSWORD)
-    mail.select('inbox')
-    print("Authenticated with Gmail Account.")
+            # Search for unread messages from Netflix
+            result, data = mail.search(None, f'(UNSEEN FROM "{NETFLIX_EMAIL_SENDER}")')
 
-    # Search for unread messages from Netflix
-    result, data = mail.search(None, f'(UNSEEN FROM "{NETFLIX_EMAIL_SENDER}")')
-
-    # Process messages
-    if result == 'OK':
-        message_ids = data[0].split()
-        print("Found {} unread messages from Netflix.".format(len(message_ids)))
-        for message_id in message_ids:
-            result, message_data = mail.fetch(message_id, '(RFC822)')
+            # Process messages
             if result == 'OK':
-                raw_email = message_data[0][1]
-                msg = email.message_from_bytes(raw_email)
-                subject = msg['Subject']
-                print("Subject:", subject)
-                if subject.startswith("Important: How to update your Netflix Household"):
-                    print("Email identified as relevant.")
-                                       
-                    body = None
-                    for part in msg.walk():
-                        if part.get_content_type() == "text/plain":
-                            body = part.get_payload(decode=True).decode(part.get_content_charset())
-                            print("Extracted email body.")
-                            mail.store(message_id, '+FLAGS', '\Seen')
-                            open_link_with_selenium(body)
-                            break
-                    if body:
-                        break
-    else:
-        print("No relevant email found or processed.")
+                message_ids = data[0].split()
+                print("Found {} unread messages from Netflix.".format(len(message_ids)))
+                for message_id in message_ids:
+                    result, message_data = mail.fetch(message_id, '(RFC822)')
+                    if result == 'OK':
+                        raw_email = message_data[0][1]
+                        msg = email.message_from_bytes(raw_email)
+                        subject = msg['Subject']
+                        print("Subject:", subject)
+                        if subject.startswith("Important: How to update your Netflix Household"):
+                            print("Email identified as relevant.")
+                            body = None
+                            for part in msg.walk():
+                                if part.get_content_type() == "text/plain":
+                                    body = part.get_payload(decode=True).decode(part.get_content_charset())
+                                    print("Extracted email body.")
+                                    mail.store(message_id, '+FLAGS', '\Seen')
+                                    open_link_with_selenium(body)
+                                    break
+                            if body:
+                                break
+            else:
+                print("No relevant email found or processed.")
+            break
 
-    # Close connection
-    mail.close()
-    mail.logout()
+        except imaplib.IMAP4.error as e:
+            print(f"IMAP error occurred: {e}")
+            time.sleep(20)
+            
+
+        except ConnectionResetError as e:
+            print(f"ConnectionResetError occurred: {e}")
+            time.sleep(20)
+            
+
+        finally:
+            try:
+                # Close connection
+                mail.close()
+                mail.logout()
+            except:
+                pass
 
     
 
@@ -146,4 +173,4 @@ def fetch_last_unseen_email():
 if __name__ == "__main__":
     while True:
         fetch_last_unseen_email()
-        time.sleep(20)
+        time.sleep(5)
