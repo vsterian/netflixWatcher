@@ -86,19 +86,30 @@ def open_link_with_selenium(body):
                     return None  # Return None if neither the button nor the message is found
 
 
-                try:
-                    element = WebDriverWait(driver, 10).until(check_button_or_message)
-                    if element:
-                        if "This link is no longer valid" in driver.page_source:
-                            print("The link is no longer valid.")
-                            return "This link is no longer valid", driver.page_source
+                retry_count = 3  # Number of times to retry clicking the button
+                for _ in range(retry_count):
+                    try:
+                        element = WebDriverWait(driver, 3).until(check_button_or_message)
+                        if element:
+                            if "This link is no longer valid" in driver.page_source:
+                                print("The link is no longer valid.")
+                                return "This link is no longer valid", driver.page_source
+                            else:
+                                print("Located 'Set Primary Location' button")
+                                time.sleep(1)
+                                element.click()
+                                print("Clicked 'Set Primary Location' button")
+                                # Wait for the next screen to load
+                                WebDriverWait(driver, 2).until(EC.url_changes(driver.current_url))
+                                print("Next screen loaded successfully")
+                                break  # Exit the loop as the click was successful
+                    except TimeoutException as exception:
+                        print("Timeout waiting for 'Set Primary Location' button or invalid link message:", exception)
+                        if _ < retry_count - 1:
+                            print("Retrying button click...")
+                            continue  # Retry clicking the button
                         else:
-                            print("Located 'Set Primary Location' button")
-                            element.click()
-                            print("Clicked 'Set Primary Location' button")
-                except TimeoutException as exception:
-                    print("Timeout waiting for 'Set Primary Location' button or invalid link message:", exception)
-                    return "Timeout waiting for 'Set Primary Location' button or invalid link message", driver.page_source
+                            return "Timeout waiting for 'Set Primary Location' button or invalid link message", driver.page_source
             except Exception as e:
                 print(f"An error occurred while processing the link: {e}")
                 return f"An error occurred while processing the link: {e}", driver.page_source

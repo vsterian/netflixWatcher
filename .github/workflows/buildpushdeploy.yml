@@ -73,7 +73,7 @@ jobs:
   
     - name: Copy script to remote
       run: |
-        echo "${{ secrets.VM_SSH_PASSWORD }}" | sshpass scp -o StrictHostKeyChecking=no .app/containerdeploy.ps1 ${{ env.SSH_USER }}@${{ env.SSH_SERVER }}:C:/script
+        echo "${{ secrets.VM_SSH_PASSWORD }}" | sshpass scp -o StrictHostKeyChecking=no /setup/containerdeploy.ps1 ${{ env.SSH_USER }}@${{ env.SSH_SERVER }}:C:/script
   
     - name: SSH and Run Docker Commands
       run: |
