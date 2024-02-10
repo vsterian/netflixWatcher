@@ -12,7 +12,7 @@ docker pull deletesfservice.azurecr.io/netflixwatcher:latest
 Write-Output 'Image pulled.'
 }
 Write-Output 'Running Docker container...'
-docker run -d --restart unless-stopped deletesfservice.azurecr.io/netflixwatcher:latest
+docker run -d --restart always deletesfservice.azurecr.io/netflixwatcher:latest
 Write-Output 'Container started.'
 Write-Output 'Listing running Docker containers...'
 docker ps

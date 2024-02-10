@@ -184,4 +184,4 @@ def fetch_last_unseen_email():
 if __name__ == "__main__":
     while True:
         fetch_last_unseen_email()
-        time.sleep(5)
+        time.sleep(10)
