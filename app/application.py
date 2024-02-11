@@ -37,8 +37,8 @@ def open_link_with_selenium(body):
     for link in links:
         if "update-primary-location" in link:
             print("Found update link:", link)
-            service = Service('/usr/bin/chromedriver')
-            options = webdriver.ChromeOptions()
+            service = Service()
+            options = webdriver.ChromeOptions(executable_path = '/usr/lib/chromium-browser/chromedriver')
             options.add_argument("--headless")
             driver = webdriver.Chrome(options=options, service=Service)
             try:
