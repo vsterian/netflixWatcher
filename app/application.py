@@ -40,7 +40,7 @@ def open_link_with_selenium(body):
             service = Service()
             options = webdriver.ChromeOptions(executable_path = '/usr/lib/chromium-browser/chromedriver')
             options.add_argument("--headless")
-            driver = webdriver.Chrome(options=options, service=Service)
+            driver = webdriver.Chrome(options=options, service=service)
             try:
                 driver.get(link)
                 print("Opened link:", link)
