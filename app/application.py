@@ -51,12 +51,14 @@ def open_link_with_selenium(body):
                     email_field = driver.find_element('name', 'userLoginId')
                     password_field = driver.find_element('name', 'password')
                     message = driver.find_element(By.XPATH, '//h1[text()="This link is no longer valid"]')
-                        if message.is_displayed():
-                            return message
+                    
+                    if message.is_displayed():
+                        return message
                     element = WebDriverWait(driver, 10).until(message)
-                        if element:
-                            if "This link is no longer valid" in driver.page_source:
-                                print("login already made.The link is no longer valid.")
+                    
+                    if element:
+                        if "This link is no longer valid" in driver.page_source:
+                            print("login already made.The link is no longer valid.")
                 except NoSuchElementException:
                     print("Login fields not found. Assuming already logged in.")
                     pass
