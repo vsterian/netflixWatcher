@@ -4,4 +4,4 @@
 # source /path/to/your/environment/bin/activate
 
 # Run your Python script
-python3 /home/pi/netflixwatcher/app/application.py
+python3 /home/pi/netflixWatcher/app/application.py
