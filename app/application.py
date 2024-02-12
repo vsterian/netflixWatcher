@@ -34,8 +34,8 @@ def login_to_netflix(driver):
     """Handles the login process for Netflix."""
     try:
         # Check if the "Email or Phone number" field is visible
-        email_or_phone_field = driver.find_element('name', 'userLoginId')
-        if email_or_phone_field.is_displayed():
+        use_password_field = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
+        if use_password_field.is_displayed():
             # Click on "Use Password" button
             use_password_button = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
             use_password_button.click()
