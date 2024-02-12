@@ -12,6 +12,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import NoSuchElementException
+from pyvirtualdisplay import Display
 
 
 NETFLIX_LOGIN = "laurentiusabin5@gmail.com"
@@ -87,6 +88,8 @@ def open_link_with_selenium(body):
             service = Service('/usr/bin/chromedriver') 
             options = webdriver.ChromeOptions()
             options.add_argument("--headless")
+            display = Display(visible=0, size=(1600, 1200))
+            display.start()
             driver = webdriver.Chrome(options=options, service=service) 
             
             try:

@@ -1,28 +1,23 @@
-# Use a light Windows base image
-FROM mcr.microsoft.com/windows:1809
+# Use the Python:latest image for Linux ARM v7
+FROM --platform=linux/arm/v7 debian:bullseye
 
-# Set the working directory
+# Set environment variable to avoid prompts during installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Chromium non-interactively
+RUN apt-get update 
+RUN apt-get install -y chromium 
+RUN apt-get install chromium-driver
+RUN apt-get install -y  xvfb
+
+# Install Python and pip
+RUN apt-get install -y python3 python3-pip
+
 WORKDIR /app
 
-
-# Step 1: Install Python
-COPY Setup/installpython.ps1 C:/Setup/
-RUN powershell -Command "Set-ExecutionPolicy Unrestricted -Scope Process; C:/Setup/installpython.ps1"
-RUN powershell -Command "python.exe -m pip install --upgrade pip"
-
-# Step 2: Install Chrome
-COPY Setup/installchrome.ps1 C:/Setup/
-RUN powershell -Command "Set-ExecutionPolicy Unrestricted -Scope Process; C:/Setup/installchrome.ps1"
-
-# Step 3: Copy the requirements.txt file and install the Python libraries
 COPY app/requirements.txt .
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Install Python libraries
-RUN pip install -r requirements.txt
-
-# Copy the application files
 COPY app/ .
 
-# Start the main script when the container starts
-CMD ["python", "application.py"]
-
+CMD ["python3", "application.py"]
