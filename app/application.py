@@ -29,6 +29,53 @@ def extract_links(text):
     urls = re.findall(url_pattern, text)
     return urls
 
+def login_to_netflix(driver):
+    """Handles the login process for Netflix."""
+    try:
+        # Check if the "Email or Phone number" field is visible
+        email_or_phone_field = driver.find_element('name', 'userLoginId')
+        if email_or_phone_field.is_displayed():
+            # Click on "Use Password" button
+            use_password_button = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
+            use_password_button.click()
+            print("Clicked 'Use Password' button")
+
+            # Use the same username and password
+            email_field = driver.find_element('name', 'userLoginId')
+            password_field = driver.find_element('name', 'password')
+            email_field.send_keys(NETFLIX_LOGIN)
+            print("Filled in Netflix email:", NETFLIX_LOGIN)
+            password_field.send_keys(NETFLIX_PASSWORD)
+            print("Filled in Netflix password")
+            password_field.send_keys(Keys.RETURN)
+            print("Pressed Enter to log in")
+            time.sleep(2)
+            return True  # Return True indicating successful login
+    except NoSuchElementException:
+        pass
+
+    try:
+        # Check if the userLoginId and password fields are visible
+        email_field = driver.find_element('name', 'userLoginId')
+        password_field = driver.find_element('name', 'password')
+        if email_field.is_displayed() and password_field.is_displayed():
+            email_field.send_keys(NETFLIX_LOGIN)
+            print("Filled in Netflix email:", NETFLIX_LOGIN)
+            password_field.send_keys(NETFLIX_PASSWORD)
+            print("Filled in Netflix password")
+            password_field.send_keys(Keys.RETURN)
+            print("Pressed Enter to log in")
+            time.sleep(2)
+            return True  # Return True indicating successful login
+    except NoSuchElementException:
+        pass
+
+    print("Login fields not found. Assuming already logged in.")
+    return False  # Return False indicating that login was not required
+
+
+
+
 
 def open_link_with_selenium(body):
     """Opens Selenium, logins to Netflix and clicks a button to confirm connection"""
@@ -37,44 +84,31 @@ def open_link_with_selenium(body):
     for link in links:
         if "update-primary-location" in link:
             print("Found update link:", link)
-            service = Service()
+            service = Service('/usr/bin/chromedriver') 
             options = webdriver.ChromeOptions()
             options.add_argument("--headless")
-            driver = webdriver.Chrome(options=options, service=service)
+            driver = webdriver.Chrome(options=options, service=service) 
+            
             try:
                 driver.get(link)
                 print("Opened link:", link)
                 time.sleep(2)  # Ensure page is loaded
 
-                # Check if login fields exist
-                try:
-                    email_field = driver.find_element('name', 'userLoginId')
-                    password_field = driver.find_element('name', 'password')
-                except NoSuchElementException:
-                    print("Login fields not found. Assuming already logged in.")
-                    pass
-                    # Proceed to the next part where the code will press the button
-                    # (implement this part of the code)
-
-                else:
-                    # Log in
-                    email_field.send_keys(NETFLIX_LOGIN)
-                    print("Filled in Netflix email:", NETFLIX_LOGIN)
-                    password_field.send_keys(NETFLIX_PASSWORD)
-                    print("Filled in Netflix password")
-                    password_field.send_keys(Keys.RETURN)
-                    print("Pressed Enter to log in")
-                    time.sleep(2)
+                # Call login function
+                if not login_to_netflix(driver):
+                    # If login wasn't required, proceed with other actions
+                    continue
 
                 def check_button_or_message(driver):
                     try:
                         # Check if the "Set Primary Location" button exists
-                        button = driver.find_element(By.CSS_SELECTOR, '[data-uia="set-primary-location-action"]')
+                        button = driver.find_element(By.XPATH, '//button[@data-uia="set-primary-location-action"]')
                         if button.is_displayed() and button.is_enabled():
+                            print("Located 'Set Primary Location' button")
                             return button  # Return the element itself if found
                     except NoSuchElementException:
                         pass
-
+                    time.sleep(2)
                     try:
                         # Check if the message indicating an invalid link exists
                         message = driver.find_element(By.XPATH, '//h1[text()="This link is no longer valid"]')
@@ -89,22 +123,26 @@ def open_link_with_selenium(body):
                 retry_count = 3  # Number of times to retry clicking the button
                 for _ in range(retry_count):
                     try:
-                        element = WebDriverWait(driver, 10).until(check_button_or_message)
+                        element = WebDriverWait(driver, 5).until(check_button_or_message)
                         if element:
                             if "This link is no longer valid" in driver.page_source:
                                 print("The link is no longer valid.")
                                 return "This link is no longer valid", driver.page_source
                             else:
-                                print("Located 'Set Primary Location' button")
-                                time.sleep(1)
+                                
                                 element.click()
-                                print("Clicked 'Set Primary Location' button")
-                                # Wait for the next screen to load
-                                WebDriverWait(driver, 2).until(EC.url_changes(driver.current_url))
-                                print("Next screen loaded successfully")
-                                break  # Exit the loop as the click was successful
+                                print("Clicked 'Update Button' button")
+                                
+                                # Wait for the success message element to appear on the next screen
+                                try:
+                                    WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, '//h1[text()="You’ve updated your Netflix Household"]')))
+                                    print("Update successful message appeared")
+                                    break  # Exit the loop as the update was successful
+                                except TimeoutException:
+                                    print("Timeout waiting for the update successful message to appear")
                     except TimeoutException as exception:
                         print("Timeout waiting for 'Set Primary Location' button or invalid link message:", exception)
+
                         if _ < retry_count - 1:
                             print("Retrying button click...")
                             continue  # Retry clicking the button
@@ -113,8 +151,8 @@ def open_link_with_selenium(body):
             except Exception as e:
                 print(f"An error occurred while processing the link: {e}")
                 return f"An error occurred while processing the link: {e}", driver.page_source
-            finally:
-                driver.quit()
+            #finally:
+               # driver.quit()
 
 
 
@@ -184,4 +222,4 @@ def fetch_last_unseen_email():
 if __name__ == "__main__":
     while True:
         fetch_last_unseen_email()
-        time.sleep(10)
+        time.sleep(5)
