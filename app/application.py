@@ -72,7 +72,7 @@ def login_to_netflix(driver):
         pass
 
     print("Login fields not found. Assuming already logged in.")
-    return False  # Return False indicating that login was not required
+    return True  # Return False indicating that login was not required
 
 
 
@@ -104,7 +104,7 @@ def open_link_with_selenium(body):
                 # Call login function
                 if not login_to_netflix(driver):
                     # If login wasn't required, proceed with other actions
-                    continue
+                    pass
 
                 def check_button_or_message(driver):
                     try:
@@ -159,8 +159,8 @@ def open_link_with_selenium(body):
             except Exception as e:
                 print(f"An error occurred while processing the link: {e}")
                 return f"An error occurred while processing the link: {e}", driver.page_source
-            #finally:
-               # driver.quit()
+            finally:
+                driver.quit()
 
 
 
