@@ -114,6 +114,7 @@ def open_link_with_selenium(body):
                         message = driver.find_element(By.XPATH, '//h1[text()="This link is no longer valid"]')
                         if message.is_displayed():
                             return message  # Return the element itself if found
+                            
                     except NoSuchElementException:
                         pass
 
