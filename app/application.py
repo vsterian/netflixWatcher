@@ -92,9 +92,9 @@ def open_link_with_selenium(body):
     for link in links:
         if "update-primary-location" in link:
             print("Found update link:", link)
-            service = Service() #'/usr/bin/chromedriver'
+            service = Service('/usr/bin/chromedriver') #
             options = webdriver.ChromeOptions()
-            #options.add_argument("--headless")
+            options.add_argument("--headless")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
