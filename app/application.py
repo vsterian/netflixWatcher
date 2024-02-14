@@ -33,6 +33,24 @@ def extract_links(text):
 
 def login_to_netflix(driver):
     """Handles the login process for Netflix."""
+    
+
+    try:
+        # Check if the userLoginId and password fields are visible
+        email_field = driver.find_element('name', 'userLoginId')
+        password_field = driver.find_element('name', 'password')
+        if  password_field.is_displayed(): #email_field.is_displayed() and
+            email_field.send_keys(NETFLIX_LOGIN)
+            print("Filled in Netflix email:", NETFLIX_LOGIN)
+            password_field.send_keys(NETFLIX_PASSWORD)
+            print("Filled in Netflix password")
+            password_field.send_keys(Keys.RETURN)
+            print("Pressed Enter to log in")
+            time.sleep(2)
+            return True  # Return True indicating successful login
+    except NoSuchElementException:
+        pass
+    
     try:
         # Check if the "Email or Phone number" field is visible
         use_password_field = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
@@ -41,6 +59,7 @@ def login_to_netflix(driver):
             use_password_button = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
             use_password_button.click()
             print("Clicked 'Use Password' button")
+            time.sleep(2)
 
             # Use the same username and password
             email_field = driver.find_element('name', 'userLoginId')
@@ -56,27 +75,11 @@ def login_to_netflix(driver):
     except NoSuchElementException:
         pass
 
-    try:
-        # Check if the userLoginId and password fields are visible
-        email_field = driver.find_element('name', 'userLoginId')
-        password_field = driver.find_element('name', 'password')
-        if email_field.is_displayed() and password_field.is_displayed():
-            email_field.send_keys(NETFLIX_LOGIN)
-            print("Filled in Netflix email:", NETFLIX_LOGIN)
-            password_field.send_keys(NETFLIX_PASSWORD)
-            print("Filled in Netflix password")
-            password_field.send_keys(Keys.RETURN)
-            print("Pressed Enter to log in")
-            time.sleep(2)
-            return True  # Return True indicating successful login
-    except NoSuchElementException:
-        pass
-
     print("Login fields not found. Assuming already logged in.")
     return True  # Return False indicating that login was not required
 
 
-
+    
 
 
 def open_link_with_selenium(body):
@@ -89,9 +92,9 @@ def open_link_with_selenium(body):
     for link in links:
         if "update-primary-location" in link:
             print("Found update link:", link)
-            service = Service('/usr/bin/chromedriver')
+            service = Service() #'/usr/bin/chromedriver'
             options = webdriver.ChromeOptions()
-            options.add_argument("--headless")
+            #options.add_argument("--headless")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
