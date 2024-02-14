@@ -4,6 +4,7 @@ import email
 import re
 import time
 import os
+from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver import Keys
 from selenium.webdriver.common.by import By
@@ -12,15 +13,15 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import NoSuchElementException
-from pyvirtualdisplay import Display
 
 
-NETFLIX_LOGIN = "laurentiusabin5@gmail.com"
-NETFLIX_PASSWORD = "vodafone@4"
-EMAIL_IMAP = "imap.gmail.com"
-EMAIL_LOGIN = "vladuttzzz@gmail.com"
-EMAIL_PASSWORD = "hlnd mpxz ymwk ijub"
-NETFLIX_EMAIL_SENDER = "info@account.netflix.com"
+load_dotenv()
+NETFLIX_LOGIN = os.getenv('NETFLIX_LOGIN')
+NETFLIX_PASSWORD = os.getenv('NETFLIX_PASSWORD')
+EMAIL_IMAP = os.getenv('EMAIL_IMAP')
+EMAIL_LOGIN = os.getenv('EMAIL_LOGIN')
+EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
+NETFLIX_EMAIL_SENDER = os.getenv('NETFLIX_EMAIL_SENDER')
 
 
 
@@ -80,20 +81,23 @@ def login_to_netflix(driver):
 
 def open_link_with_selenium(body):
     """Opens Selenium, logins to Netflix and clicks a button to confirm connection"""
-    print("Opening Selenium WebDriver...")
+    #print("Opening Selenium WebDriver...")
+
+    
+
     links = extract_links(body)
     for link in links:
         if "update-primary-location" in link:
             print("Found update link:", link)
             service = Service('/usr/bin/chromedriver') 
             options = webdriver.ChromeOptions()
-            options.add_argument("--headless")
+            #options.add_argument("--headless")
             options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--enable-logging=stderr --v=1 &> ~/file.log")
-            display = Display(visible=0, size=(1600, 1200))
-            display.start()
+            #options.add_argument("--disable-dev-shm-usage")
+            #options.add_argument("--disable-gpu")
+            #options.add_argument("--enable-logging=stderr --v=1 &> ~/file.log")
+            options.add_argument("--remote-debugging-port=9222")
+            os.environ['DISPLAY'] = ':99'
             driver = webdriver.Chrome(options=options, service=service) 
             
             try:
@@ -173,7 +177,7 @@ def fetch_last_unseen_email():
             mail = imaplib.IMAP4_SSL('imap.gmail.com')
             mail.login(EMAIL_LOGIN, EMAIL_PASSWORD)
             mail.select('inbox')
-            print("Authenticated with Gmail Account.")
+            #print("Authenticated with Gmail Account.")
 
             # Search for unread messages from Netflix
             result, data = mail.search(None, f'(UNSEEN FROM "{NETFLIX_EMAIL_SENDER}")')
@@ -181,21 +185,21 @@ def fetch_last_unseen_email():
             # Process messages
             if result == 'OK':
                 message_ids = data[0].split()
-                print("Found {} unread messages from Netflix.".format(len(message_ids)))
+                #print("Found {} unread messages from Netflix.".format(len(message_ids)))
                 for message_id in message_ids:
                     result, message_data = mail.fetch(message_id, '(RFC822)')
                     if result == 'OK':
                         raw_email = message_data[0][1]
                         msg = email.message_from_bytes(raw_email)
                         subject = msg['Subject']
-                        print("Subject:", subject)
+                        #print("Subject:", subject)
                         if subject.startswith("Important: How to update your Netflix Household"):
                             print("Email identified as relevant.")
                             body = None
                             for part in msg.walk():
                                 if part.get_content_type() == "text/plain":
                                     body = part.get_payload(decode=True).decode(part.get_content_charset())
-                                    print("Extracted email body.")
+                                    #print("Extracted email body.")
                                     mail.store(message_id, '+FLAGS', '\Seen')
                                     open_link_with_selenium(body)
                                     break
