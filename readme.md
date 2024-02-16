@@ -26,7 +26,7 @@ python application.py
 ```
 
 ## Workflow
-1. The script connects to Gmail every 20 seconds to fetch unread emails.
+1. The script connects to Gmail every 5 seconds to fetch unread emails.
 2. If an unread email from Netflix is found, it extracts the body and processes it to confirm the Netflix Household update.
 3. The confirmation process is automated using Selenium.
 4. If any errors occur during the process, they are logged in the console.
@@ -36,7 +36,7 @@ python application.py
 - All other exceptions are logged in the console.
 
 ## Notes
-- This project runs on a Windows container.
+- This code has no containerization yet functional. the goal is to use docker container running on raspberry pi
 - Ensure the Chrome WebDriver is compatible with your Chrome browser version.
 
 ---
