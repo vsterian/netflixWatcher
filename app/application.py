@@ -220,6 +220,14 @@ def fetch_last_unseen_email():
         except ConnectionResetError as e:
             print(f"ConnectionResetError occurred: {e}")
             time.sleep(20)
+
+        except OSError as e:
+            print(f"OSError occurred: {e}")
+            time.sleep(20)
+
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            time.sleep(20)
             
 
         finally:
