@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Change directory to the correct path
+cd /home/pi/netflixWatcher/app/
+
 # Step 1: Kill the current instance of application.py
 pkill -f "python3 application.py"
 
