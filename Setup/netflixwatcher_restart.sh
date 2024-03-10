@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Change directory to the correct path
+# Change directory to the correct paths
 cd /home/pi/netflixWatcher/app/
 
 # Step 1: Kill the current instance of application.py
