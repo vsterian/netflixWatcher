@@ -1,4 +1,4 @@
 selenium
 pylint
 pyvirtualdisplay
-dotenv
+python-dotenv

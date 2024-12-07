@@ -14,6 +14,8 @@ This module provides confirmation for Netflix Household updates by fetching rele
     ```
 2. **Chrome WebDriver**: Download the Chrome WebDriver compatible with your Chrome browser version and place it in the project directory.
 
+    On linux: sudo apt-get install chromium-chromedriver
+
 3. **Gmail Credentials**: Provide Gmail credentials (`EMAIL_LOGIN`, `EMAIL_PASSWORD`) for accessing the inbox where Netflix update emails are received.
 
 4. **Netflix Credentials**: Set Netflix credentials (`NETFLIX_LOGIN`, `NETFLIX_PASSWORD`) for logging in to confirm the updates.

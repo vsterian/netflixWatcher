@@ -1,5 +1,5 @@
 # Use the Python:latest image for Linux ARM v7
-FROM --platform=linux/arm/v7 debian:stable
+FROM debian:stable
 
 # Install dependencies
 RUN apt-get update && apt-get install -y curl xvfb chromium
@@ -14,7 +14,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install specific version of Chromium
 RUN apt-get update \
-    && apt-get install -y chromium-driver 
+    && apt-get install -y chromium-chromedriver 
 
 # Install Python and pip
 RUN apt-get install -y python3 python3-pip curl unzip libgconf-2-4
