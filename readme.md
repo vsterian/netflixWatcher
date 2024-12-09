@@ -16,9 +16,15 @@ pip install imaplib email selenium
 ```makefile
 EMAIL_LOGIN=your_email@gmail.com
 EMAIL_PASSWORD=your_email_password
+EMAIL_IMAP=imap.gmail.com
 NETFLIX_LOGIN=your_netflix_login
 NETFLIX_PASSWORD=your_netflix_password
+NETFLIX_EMAIL_SENDER=info@account.netflix.com
 ```
+
+For `EMAIL_PASSWORD` use the steps provided at this link: [Sign in with app passwords ](https://support.google.com/mail/answer/185833?hl=en#zippy= ) .
+This is not the same password that you use to login to your email.
+
 4. Run the script using Python. Ensure you have access to the internet as the script requires web access to interact with Netflix updates.
 ```bash
 python application.py
