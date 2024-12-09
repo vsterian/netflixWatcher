@@ -34,7 +34,23 @@ python application.py
 
 There are two ways to run this project with Docker: one using docker and another using docker-compose. From my perspective you should use docker compose one.
 
+#### Prerequisites:
+* Docker installed on your machine
+* docker-compose installed on your machine
+
+**Note**: You need to have a `.env` file in the root of your project with the following format:
+reate a `.env` file in the root of your project with the following format:
+```makefile
+EMAIL_LOGIN=your_email@gmail.com
+EMAIL_PASSWORD=your_email_password
+EMAIL_IMAP=imap.gmail.com
+NETFLIX_LOGIN=your_netflix_login
+NETFLIX_PASSWORD=your_netflix_password
+NETFLIX_EMAIL_SENDER=info@account.netflix.com
+```
+
 1. **Build and Run using Docker**: Use the following command to build and run the container:
+
 ```bash
 docker build -t netflixwatcher:1.0 .
 docker run -d --name netflixwatcher --restart unless-stopped netflixwatcher:1.0
