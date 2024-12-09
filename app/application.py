@@ -108,14 +108,11 @@ def open_link_with_selenium(body):
                 print("Opened link:", link)
                 time.sleep(2)  # Ensure page is loaded
 
-                # Call login function
                 if not login_to_netflix(driver):
-                    # If login wasn't required, proceed with other actions
                     pass
 
                 def check_button_or_message(driver):
                     try:
-                        # Check if the "Set Primary Location" button exists
                         button = driver.find_element(By.XPATH, '//button[@data-uia="set-primary-location-action"]')
                         if button.is_displayed() and button.is_enabled():
                             print("Located 'Set Primary Location' button")
@@ -124,7 +121,6 @@ def open_link_with_selenium(body):
                         pass
                     time.sleep(2)
                     try:
-                        # Check if the message indicating an invalid link exists
                         message = driver.find_element(By.XPATH, '//h1[text()="This link is no longer valid"]')
                         if message.is_displayed():
                             return message  # Return the element itself if found
@@ -132,10 +128,10 @@ def open_link_with_selenium(body):
                     except NoSuchElementException:
                         pass
 
-                    return None  # Return None if neither the button nor the message is found
+                    return None 
 
 
-                retry_count = 3  # Number of times to retry clicking the button
+                retry_count = 3
                 for _ in range(retry_count):
                     try:
                         element = WebDriverWait(driver, 5).until(check_button_or_message)
@@ -148,11 +144,10 @@ def open_link_with_selenium(body):
                                 element.click()
                                 print("Clicked 'Update Button' button")
                                 
-                                # Wait for the success message element to appear on the next screen
                                 try:
                                     WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, '//h1[text()="You’ve updated your Netflix Household"]')))
                                     print("Update successful message appeared")
-                                    break  # Exit the loop as the update was successful
+                                    break
                                 except TimeoutException:
                                     print("Timeout waiting for the update successful message to appear")
                     except TimeoutException as exception:
@@ -176,33 +171,26 @@ def fetch_last_unseen_email():
     #print("Fetching last unseen email...")
     while True:
         try:
-            # Connect to Gmail
             mail = imaplib.IMAP4_SSL('imap.gmail.com')
             mail.login(EMAIL_LOGIN, EMAIL_PASSWORD)
             mail.select('inbox')
-            #print("Authenticated with Gmail Account.")
 
-            # Search for unread messages from Netflix
             result, data = mail.search(None, f'(UNSEEN FROM "{NETFLIX_EMAIL_SENDER}")')
 
-            # Process messages
             if result == 'OK':
                 message_ids = data[0].split()
-                #print("Found {} unread messages from Netflix.".format(len(message_ids)))
                 for message_id in message_ids:
                     result, message_data = mail.fetch(message_id, '(RFC822)')
                     if result == 'OK':
                         raw_email = message_data[0][1]
                         msg = email.message_from_bytes(raw_email)
                         subject = msg['Subject']
-                        #print("Subject:", subject)
                         if subject.startswith("Important: How to update your Netflix Household"):
                             print("Email identified as relevant.")
                             body = None
                             for part in msg.walk():
                                 if part.get_content_type() == "text/plain":
                                     body = part.get_payload(decode=True).decode(part.get_content_charset())
-                                    #print("Extracted email body.")
                                     mail.store(message_id, '+FLAGS', '\Seen')
                                     open_link_with_selenium(body)
                                     break
@@ -232,7 +220,6 @@ def fetch_last_unseen_email():
 
         finally:
             try:
-                # Close connection
                 mail.close()
                 mail.logout()
             except:
