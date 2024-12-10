@@ -24,7 +24,9 @@ jobs:
     # Step 3: Copy repository to Raspberry Pi
     - name: Copy Repository to Raspberry Pi
       run: |
-        sshpass -p "${{ secrets.SSH_PASSWORD }}" rsync -avz -e "ssh -p ${{ env.SSH_PORT }}" ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_SERVER }}:/home/${{ secrets.SSH_USER }}/netflixWatcher/
+        sshpass -p "${{ secrets.SSH_PASSWORD }}" rsync -avz \
+        -e "ssh -o StrictHostKeyChecking=no -p ${{ env.SSH_PORT }}" ./ \
+        ${{ secrets.SSH_USER }}@${{ secrets.SSH_SERVER }}:/home/${{ secrets.SSH_USER }}/netflixWatcher/
 
     # Step 4: Run docker compose on Raspberry Pi
     - name: Run Docker Compose on Raspberry Pi
