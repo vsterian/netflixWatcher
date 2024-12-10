@@ -1,7 +1,8 @@
-name: Build and Push to ACR Windows
+name: Build and Push to Raspberry PI
 
 on:
-  workflow_call
+  push:
+    branches: main
 
 env:
   #REGISTRY_NAME: <your-acr-registry>  # replace with your ACR name
