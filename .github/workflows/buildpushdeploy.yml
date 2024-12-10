@@ -1,90 +1,36 @@
 name: Build and Push to ACR Windows
 
 on:
-  push:
-    branches:
-      - dev-armv7  # trigger the workflow on push events to the main branch
+  workflow_call
 
 env:
   #REGISTRY_NAME: <your-acr-registry>  # replace with your ACR name
-  IMAGE_NAME: netflixwatcher  # replace with your Docker image name
-  SSH_SERVER: 51.11.166.51
-  SSH_USER: vsterian
+  PORT: 30000
   CONTAINER_NAME: netflixwatcher
 
 jobs:
   build-and-push:
-    runs-on: windows-2019
+    runs-on: ubuntu-latest
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v2
-
-    - name: Login and Push to ACR
-      uses: azure/docker-login@v1
-      with:
-        login-server: ${{ secrets.REGISTRY_LOGIN_SERVER }}
-        username: ${{ secrets.REGISTRY_USERNAME }}  # stored in GitHub Secrets
-        password: ${{ secrets.REGISTRY_PASSWORD }}  # stored in GitHub Secrets
-    
-    - run: |
-        docker build . -t ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
-        docker push ${{ secrets.REGISTRY_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:latest
-  
-        
+      uses: actions/checkout@v4
    
-  update-nsg-rule:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
 
-      - uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS_NSG }}
+    - name: Connect to Raspberry PI
+      uses: invi5H/ssh-action@v1
+      with:
+        SSH_HOST: ${{ secrets.SSH_SERVER }}
+        SSH_USER: ${{ secrets.SSH_USER }}
+        SSH_KEY: ${{ secrets.SSH_PASSWORD }}
+        SSH_PORT: ${{ env.PORT }}
 
-      - name: Update NSG Rule
-        uses: azure/CLI@v1
-        with:
-          inlineScript: |
-            set -eu
-            agentIP=$(wget -qO- https://api.ipify.org/)
-            nsgName="ftpsvrvm-nsg"
-            resourceGroup="ftpsvrrg"
-            ruleName="allowrunnerssh"
-            priority=100
-            # Check if the rule already exists
-            exists=$(az network nsg rule list --nsg-name $nsgName -g $resourceGroup --query "[?name=='$ruleName'].name" -o tsv)
-            if [ -z "$exists" ]; then
-              # If the rule doesn't exist, create a new one
-              az network nsg rule create --name $ruleName --nsg-name $nsgName -g $resourceGroup --priority $priority --access Allow --protocol Tcp --direction Inbound --source-address-prefixes $agentIP --source-port-ranges '*' --destination-port-ranges 22
-            else
-              # If the rule exists, update it with the new IP
-              az network nsg rule update --name $ruleName --nsg-name $nsgName -g $resourceGroup --source-address-prefixes $agentIP
-            fi
-        
-  
-  deploy-to-WinVM:
-    runs-on: ubuntu-latest
-    needs: build-and-push
-  
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v2
-  
-    - name: Copy script to remote
+    - name: Copy Files to Raspberry Pi
       run: |
-        echo "${{ secrets.VM_SSH_PASSWORD }}" | sshpass scp -o StrictHostKeyChecking=no ./Setup/containerdeploy.ps1 ${{ env.SSH_USER }}@${{ env.SSH_SERVER }}:C:/script
-  
-    - name: SSH and Run Docker Commands
+        scp -r . ${{ env.SSH_USER }}@${{ env.SSH_SERVER }}:/home/${{ env.SSH_USER }}/netflixWatcher
+
+    - name: Run netflixWatcher container
+
       run: |
-        echo "${{ secrets.VM_SSH_PASSWORD }}" | sshpass ssh -o StrictHostKeyChecking=no ${{ env.SSH_USER }}@${{ env.SSH_SERVER }} "
-          Write-Output 'Running .ps1 script...'
-          powershell -File C:\script\containerdeploy.ps1
-          Write-Output 'Script executed.'
-          "
-                
-
-        
-
-        
-    
+         cd /home/${{env.SSH_USER}}/netflixWatcher
+         docker compose up -d
