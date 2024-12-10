@@ -17,22 +17,22 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
    
-    - id: ssh
-      uses: invi5H/ssh-action@v1
-      with:
-        SSH_HOST: ${{ secrets.SSH_SERVER }}
-        SSH_PORT: ${{ env.SSH_PORT }}
-        SSH_USER: ${{ secrets.SSH_USER }}
-        SSH_KEY: ${{ secrets.SSH_PASSWORD }}
-
-    - run: ssh ${{ steps.ssh.outputs.SERVER }} pwd
-
-    - name: Copy Files to Raspberry Pi
+    # Step 2: Set up SSH access
+    - name: Setup SSH Connection
       run: |
-        scp -r . ${{ env.SSH_USER }}@${{ env.SSH_SERVER }}:/home/${{ env.SSH_USER }}/netflixWatcher
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PASSWORD }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
 
-    - name: Run netflixWatcher container
-
+    # Step 3: Copy repo to Raspberry Pi
+    - name: Copy Repository to Raspberry Pi
       run: |
-         cd /home/${{env.SSH_USER}}/netflixWatcher
-         docker compose up -d
+        rsync -avz -e "ssh -p ${{ env.SSH_PORT }}" ./ ${{ secrets.SSH_USER }}@${{ secrets.SSH_SERVER }}:/home/${{ secrets.SSH_USER }}/netflixWatcher/
+
+    # Step 4: Navigate to the folder and run docker compose
+    - name: Run Docker Compose on Raspberry Pi
+      run: |
+        ssh -p ${{ env.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_SERVER }} << EOF
+          cd /home/${{ secrets.SSH_USER }}/netflixWatcher
+          docker compose up -d --build
+        EOF
