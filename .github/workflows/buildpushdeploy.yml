@@ -20,11 +20,13 @@ jobs:
 
     - name: Connect to Raspberry PI
       uses: invi5H/ssh-action@v1
+      id: ssh
       with:
         SSH_HOST: ${{ secrets.SSH_SERVER }}
         SSH_USER: ${{ secrets.SSH_USER }}
         SSH_KEY: ${{ secrets.SSH_PASSWORD }}
         SSH_PORT: ${{ env.PORT }}
+    - run: ssh ${{ steps.ssh.outputs.SERVER }} pwd
 
     - name: Copy Files to Raspberry Pi
       run: |
