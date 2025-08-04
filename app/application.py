@@ -13,6 +13,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import NoSuchElementException
+from logger import setup_logger
 
 
 load_dotenv()
@@ -22,6 +23,9 @@ EMAIL_IMAP = os.getenv('EMAIL_IMAP')
 EMAIL_LOGIN = os.getenv('EMAIL_LOGIN')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 NETFLIX_EMAIL_SENDER = os.getenv('NETFLIX_EMAIL_SENDER')
+
+# Set up logger
+logger = setup_logger()
 
 
 
@@ -41,11 +45,11 @@ def login_to_netflix(driver):
         password_field = driver.find_element('name', 'password')
         if  password_field.is_displayed(): #email_field.is_displayed() and
             email_field.send_keys(NETFLIX_LOGIN)
-            print("Filled in Netflix email:", NETFLIX_LOGIN)
+            logger.info("Filled in Netflix email", extra={"email": NETFLIX_LOGIN})
             password_field.send_keys(NETFLIX_PASSWORD)
-            print("Filled in Netflix password")
+            logger.info("Filled in Netflix password")
             password_field.send_keys(Keys.RETURN)
-            print("Pressed Enter to log in")
+            logger.info("Pressed Enter to log in")
             time.sleep(2)
             return True  # Return True indicating successful login
     except NoSuchElementException:
@@ -58,24 +62,24 @@ def login_to_netflix(driver):
             # Click on "Use Password" button
             use_password_button = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
             use_password_button.click()
-            print("Clicked 'Use Password' button")
+            logger.info("Clicked 'Use Password' button")
             time.sleep(2)
 
             # Use the same username and password
             email_field = driver.find_element('name', 'userLoginId')
             password_field = driver.find_element('name', 'password')
             email_field.send_keys(NETFLIX_LOGIN)
-            print("Filled in Netflix email:", NETFLIX_LOGIN)
+            logger.info("Filled in Netflix email", extra={"email": NETFLIX_LOGIN})
             password_field.send_keys(NETFLIX_PASSWORD)
-            print("Filled in Netflix password")
+            logger.info("Filled in Netflix password")
             password_field.send_keys(Keys.RETURN)
-            print("Pressed Enter to log in")
+            logger.info("Pressed Enter to log in")
             time.sleep(2)
             return True  # Return True indicating successful login
     except NoSuchElementException:
         pass
 
-    print("Login fields not found. Assuming already logged in.")
+    logger.info("Login fields not found. Assuming already logged in.")
     return True  # Return False indicating that login was not required
 
 
@@ -91,7 +95,7 @@ def open_link_with_selenium(body):
     links = extract_links(body)
     for link in links:
         if "update-primary-location" in link:
-            print("Found update link:", link)
+            logger.info("Found update link", extra={"link": link})
             service = Service('/usr/bin/chromedriver') #
             options = webdriver.ChromeOptions()
             options.add_argument("--headless")
@@ -105,7 +109,7 @@ def open_link_with_selenium(body):
             
             try:
                 driver.get(link)
-                print("Opened link:", link)
+                logger.info("Opened link", extra={"link": link})
                 time.sleep(2)  # Ensure page is loaded
 
                 if not login_to_netflix(driver):
@@ -115,7 +119,7 @@ def open_link_with_selenium(body):
                     try:
                         button = driver.find_element(By.XPATH, '//button[@data-uia="set-primary-location-action"]')
                         if button.is_displayed() and button.is_enabled():
-                            print("Located 'Set Primary Location' button")
+                            logger.info("Located 'Set Primary Location' button")
                             return button  # Return the element itself if found
                     except NoSuchElementException:
                         pass
@@ -137,29 +141,31 @@ def open_link_with_selenium(body):
                         element = WebDriverWait(driver, 5).until(check_button_or_message)
                         if element:
                             if "This link is no longer valid" in driver.page_source:
-                                print("The link is no longer valid.")
+                                logger.warning("The link is no longer valid")
                                 return "This link is no longer valid", driver.page_source
                             else:
                                 
                                 element.click()
-                                print("Clicked 'Update Button' button")
+                                logger.info("Clicked 'Update Button' button")
                                 
                                 try:
                                     WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, '//h1[text()="You’ve updated your Netflix Household"]')))
-                                    print("Update successful message appeared")
+                                    logger.info("Update successful message appeared")
                                     break
                                 except TimeoutException:
-                                    print("Timeout waiting for the update successful message to appear")
+                                    logger.error("Timeout waiting for the update successful message to appear")
                     except TimeoutException as exception:
-                        print("Timeout waiting for 'Set Primary Location' button or invalid link message:", exception)
+                        logger.error("Timeout waiting for 'Set Primary Location' button or invalid link message", 
+                                   extra={"exception": str(exception)})
 
                         if _ < retry_count - 1:
-                            print("Retrying button click...")
+                            logger.info("Retrying button click...")
                             continue  # Retry clicking the button
                         else:
                             return "Timeout waiting for 'Set Primary Location' button or invalid link message", driver.page_source
             except Exception as e:
-                print(f"An error occurred while processing the link: {e}")
+                logger.error("An error occurred while processing the link", 
+                           extra={"error": str(e)}, exc_info=True)
                 return f"An error occurred while processing the link: {e}", driver.page_source
             finally:
                 driver.quit()
@@ -186,35 +192,35 @@ def fetch_last_unseen_email():
                         msg = email.message_from_bytes(raw_email)
                         subject = msg['Subject']
                         if subject.startswith("Important: How to update your Netflix Household"):
-                            print("Email identified as relevant.")
+                            logger.info("Email identified as relevant", extra={"subject": subject})
                             body = None
                             for part in msg.walk():
                                 if part.get_content_type() == "text/plain":
                                     body = part.get_payload(decode=True).decode(part.get_content_charset())
-                                    mail.store(message_id, '+FLAGS', '\Seen')
+                                    mail.store(message_id, '+FLAGS', '\\Seen')
                                     open_link_with_selenium(body)
                                     break
                             if body:
                                 break
             else:
-                print("No relevant email found or processed.")
+                logger.info("No relevant email found or processed")
             break
 
         except imaplib.IMAP4.error as e:
-            print(f"IMAP error occurred: {e}")
+            logger.error("IMAP error occurred", extra={"error": str(e)}, exc_info=True)
             time.sleep(20)
             
 
         except ConnectionResetError as e:
-            print(f"ConnectionResetError occurred: {e}")
+            logger.error("ConnectionResetError occurred", extra={"error": str(e)}, exc_info=True)
             time.sleep(20)
 
         except OSError as e:
-            print(f"OSError occurred: {e}")
+            logger.error("OSError occurred", extra={"error": str(e)}, exc_info=True)
             time.sleep(20)
 
         except Exception as e:
-            print(f"An error occurred: {e}")
+            logger.error("An error occurred", extra={"error": str(e)}, exc_info=True)
             time.sleep(20)
             
 
