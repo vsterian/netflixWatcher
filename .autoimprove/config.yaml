@@ -1,0 +1,31 @@
+version: "1.0"
+repo: netflixWatcher
+summary: "Python daemon that auto-confirms Netflix Household updates via Gmail + Selenium"
+experiment_duration_seconds: 300
+
+tech_stack:
+  language: "Python 3"
+  framework: "none"
+  package_manager: "pip"
+  test_command: "N/A"
+  build_command: "none"
+
+editable_files:
+  - "app/application.py  # Main daemon: email polling, Selenium automation, Netflix login"
+  - "app/logger.py       # Custom JSON formatter and logger setup"
+
+protected_paths:
+  - ".autoimprove/"
+  - "dockerfile"
+  - "docker-compose.yml"
+  - "Setup/"
+
+primary_metric:
+  name: "code_quality"
+  description: "Pylint score (0–10) on app/application.py and app/logger.py, normalized to [0,1]"
+
+evaluators:
+  - name: "code_quality"
+    description: "Pylint score averaged over both source files, normalized to [0.0, 1.0]"
+    weight: 5.0
+    timeout: 120

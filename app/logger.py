@@ -34,11 +34,11 @@ LOG_RECORD_ATTRS = [
 
 class CustomJsonFormatter(logging.Formatter):
     """Custom JSON formatter for structured logging"""
-    
+
     def format(self, record: logging.LogRecord) -> str:
         """Format log record as JSON"""
         output = {}
-        
+
         # Add core fields
         for key in ["name", "module", "funcName"]:
             output[key] = record.__dict__[key]
@@ -63,10 +63,10 @@ class CustomJsonFormatter(logging.Formatter):
 def setup_logger(logger_name="netflixwatcher"):
     """Set up logger with console handler and custom JSON formatter"""
     logger = logging.getLogger(logger_name)
-    
+
     # Clear any existing handlers to avoid duplicates
     logger.handlers.clear()
-    
+
     # Set up console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(CustomJsonFormatter())
