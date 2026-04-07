@@ -1,0 +1,19 @@
+{
+  "composite_score": 1.0,
+  "elapsed_seconds": 1.8,
+  "evaluators": [
+    {
+      "name": "code_quality",
+      "score": 1.0,
+      "details": {
+        "pylint_scores": {
+          "app/application.py": 10.0,
+          "app/logger.py": 10.0
+        },
+        "average_pylint_score": 10.0,
+        "normalized_score": 1.0
+      },
+      "weight": 5.0
+    }
+  ]
+}

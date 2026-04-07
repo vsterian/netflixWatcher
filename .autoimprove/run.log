@@ -1,28 +1,28 @@
 === evaluator: code_quality.py ===
 pylint app/application.py:
-  Your code has been rated at 5.40/10 (previous run: 5.40/10, +0.00)
-  app/application.py: 5.40/10  → 0.5400
+  Your code has been rated at 10.00/10 (previous run: 10.00/10, +0.00)
+  app/application.py: 10.00/10  → 1.0000
 pylint app/logger.py:
-  Your code has been rated at 8.15/10 (previous run: 8.15/10, +0.00)
-  app/logger.py: 8.15/10  → 0.8150
---- code_quality: score=0.6775 ---
+  Your code has been rated at 10.00/10 (previous run: 10.00/10, +0.00)
+  app/logger.py: 10.00/10  → 1.0000
+--- code_quality: score=1.0 ---
 
 
 === result ===
 {
-  "composite_score": 0.6775,
-  "elapsed_seconds": 2.1,
+  "composite_score": 1.0,
+  "elapsed_seconds": 1.9,
   "evaluators": [
     {
       "name": "code_quality",
-      "score": 0.6775,
+      "score": 1.0,
       "details": {
         "pylint_scores": {
-          "app/application.py": 5.4,
-          "app/logger.py": 8.15
+          "app/application.py": 10.0,
+          "app/logger.py": 10.0
         },
-        "average_pylint_score": 6.775,
-        "normalized_score": 0.6775
+        "average_pylint_score": 10.0,
+        "normalized_score": 1.0
       },
       "weight": 5.0
     }
