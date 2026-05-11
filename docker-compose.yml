@@ -3,6 +3,8 @@ services:
     build: .
     container_name: netflixwatcher
     restart: always
+    env_file:
+      - .env
 
   scheduler:
     image: bash

@@ -19,13 +19,25 @@ from logger import setup_logger
 load_dotenv()
 NETFLIX_LOGIN = os.getenv('NETFLIX_LOGIN')
 NETFLIX_PASSWORD = os.getenv('NETFLIX_PASSWORD')
-EMAIL_IMAP = os.getenv('EMAIL_IMAP')
+EMAIL_IMAP = os.getenv('EMAIL_IMAP', 'imap.gmail.com')
 EMAIL_LOGIN = os.getenv('EMAIL_LOGIN')
 EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 NETFLIX_EMAIL_SENDER = os.getenv('NETFLIX_EMAIL_SENDER')
 
 # Set up logger
 logger = setup_logger()
+
+
+def get_missing_env_vars():
+    """Returns list of required env vars that are missing or empty."""
+    required_env_vars = {
+        'NETFLIX_LOGIN': NETFLIX_LOGIN,
+        'NETFLIX_PASSWORD': NETFLIX_PASSWORD,
+        'EMAIL_LOGIN': EMAIL_LOGIN,
+        'EMAIL_PASSWORD': EMAIL_PASSWORD,
+        'NETFLIX_EMAIL_SENDER': NETFLIX_EMAIL_SENDER,
+    }
+    return [name for name, value in required_env_vars.items() if not value]
 
 
 
@@ -37,6 +49,9 @@ def extract_links(text):
 
 def login_to_netflix(driver):
     """Handles the login process for Netflix."""
+    if not NETFLIX_LOGIN or not NETFLIX_PASSWORD:
+        logger.error("Missing Netflix credentials; cannot perform login")
+        return False
     
 
     try:
@@ -89,6 +104,10 @@ def login_to_netflix(driver):
 def open_link_with_selenium(body):
     """Opens Selenium, logins to Netflix and clicks a button to confirm connection"""
     #print("Opening Selenium WebDriver...")
+
+    if not body:
+        logger.warning("Email body is empty; skipping Selenium flow")
+        return "Empty email body", None
 
     
 
@@ -175,9 +194,16 @@ def open_link_with_selenium(body):
 def fetch_last_unseen_email():
     """Gets body of last unseen mail from inbox"""
     #print("Fetching last unseen email...")
+    missing_vars = get_missing_env_vars()
+    if missing_vars:
+        logger.error("Missing required environment variables", extra={"missing": missing_vars})
+        time.sleep(20)
+        return
+
     while True:
+        mail = None
         try:
-            mail = imaplib.IMAP4_SSL('imap.gmail.com')
+            mail = imaplib.IMAP4_SSL(EMAIL_IMAP)
             mail.login(EMAIL_LOGIN, EMAIL_PASSWORD)
             mail.select('inbox')
 
@@ -190,13 +216,16 @@ def fetch_last_unseen_email():
                     if result == 'OK':
                         raw_email = message_data[0][1]
                         msg = email.message_from_bytes(raw_email)
-                        subject = msg['Subject']
+                        subject = msg.get('Subject', '')
                         if subject.startswith("Important: How to update your Netflix Household"):
                             logger.info("Email identified as relevant", extra={"subject": subject})
                             body = None
                             for part in msg.walk():
                                 if part.get_content_type() == "text/plain":
-                                    body = part.get_payload(decode=True).decode(part.get_content_charset())
+                                    payload = part.get_payload(decode=True)
+                                    charset = part.get_content_charset() or 'utf-8'
+                                    if payload is not None:
+                                        body = payload.decode(charset, errors='replace')
                                     mail.store(message_id, '+FLAGS', '\\Seen')
                                     open_link_with_selenium(body)
                                     break
