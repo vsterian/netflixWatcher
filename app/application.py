@@ -14,6 +14,7 @@ from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import NoSuchElementException
 from logger import setup_logger
+from metrics import Metrics
 
 
 load_dotenv()
@@ -26,6 +27,7 @@ NETFLIX_EMAIL_SENDER = os.getenv('NETFLIX_EMAIL_SENDER')
 
 # Set up logger
 logger = setup_logger()
+metrics = Metrics()
 
 
 def get_missing_env_vars():
@@ -103,100 +105,119 @@ def login_to_netflix(driver):
 
 def open_link_with_selenium(body):
     """Opens Selenium, logins to Netflix and clicks a button to confirm connection"""
-    #print("Opening Selenium WebDriver...")
-
+    started = time.monotonic()
     if not body:
         logger.warning("Email body is empty; skipping Selenium flow")
+        metrics.workflow_finished(False, time.monotonic() - started)
         return "Empty email body", None
-
-    
 
     links = extract_links(body)
     for link in links:
-        if "update-primary-location" in link:
-            logger.info("Found update link", extra={"link": link})
-            service = Service('/usr/bin/chromedriver') #
+        if "update-primary-location" not in link:
+            continue
+
+        logger.info("Found update link")
+        driver = None
+        try:
+            metrics.set("netflix_workflow_stage", 2)
+            service = Service('/usr/bin/chromedriver')
             options = webdriver.ChromeOptions()
             options.add_argument("--headless")
             options.add_argument("--no-sandbox")
             options.add_argument("--disable-dev-shm-usage")
             options.add_argument("--disable-gpu")
-            #options.add_argument("--enable-logging=stderr --v=1 &> ~/file.log")
             options.add_argument("--remote-debugging-port=9222")
             os.environ['DISPLAY'] = ':99'
-            driver = webdriver.Chrome(options=options, service=service) 
-            
-            try:
-                driver.get(link)
-                logger.info("Opened link", extra={"link": link})
-                time.sleep(2)  # Ensure page is loaded
+            driver = webdriver.Chrome(options=options, service=service)
+            metrics.update(
+                netflix_selenium_available=1,
+                netflix_selenium_last_start_timestamp_seconds=time.time(),
+            )
+            metrics.increment("netflix_selenium_start_success_total")
 
-                if not login_to_netflix(driver):
+            driver.get(link)
+            logger.info("Opened Netflix update link")
+            time.sleep(2)
+            metrics.set("netflix_workflow_stage", 3)
+            if not login_to_netflix(driver):
+                raise RuntimeError("Netflix login failed")
+
+            def check_button_or_message(current_driver):
+                try:
+                    button = current_driver.find_element(
+                        By.XPATH,
+                        '//button[@data-uia="set-primary-location-action"]',
+                    )
+                    if button.is_displayed() and button.is_enabled():
+                        return button
+                except NoSuchElementException:
                     pass
+                try:
+                    message = current_driver.find_element(
+                        By.XPATH,
+                        '//h1[text()="This link is no longer valid"]',
+                    )
+                    if message.is_displayed():
+                        return message
+                except NoSuchElementException:
+                    pass
+                return None
 
-                def check_button_or_message(driver):
-                    try:
-                        button = driver.find_element(By.XPATH, '//button[@data-uia="set-primary-location-action"]')
-                        if button.is_displayed() and button.is_enabled():
-                            logger.info("Located 'Set Primary Location' button")
-                            return button  # Return the element itself if found
-                    except NoSuchElementException:
-                        pass
-                    time.sleep(2)
-                    try:
-                        message = driver.find_element(By.XPATH, '//h1[text()="This link is no longer valid"]')
-                        if message.is_displayed():
-                            return message  # Return the element itself if found
-                            
-                    except NoSuchElementException:
-                        pass
-
-                    return None 
-
-
-                retry_count = 3
-                for _ in range(retry_count):
-                    try:
-                        element = WebDriverWait(driver, 5).until(check_button_or_message)
-                        if element:
-                            if "This link is no longer valid" in driver.page_source:
-                                logger.warning("The link is no longer valid")
-                                return "This link is no longer valid", driver.page_source
-                            else:
-                                
-                                element.click()
-                                logger.info("Clicked 'Update Button' button")
-                                
-                                try:
-                                    WebDriverWait(driver, 10).until(EC.visibility_of_element_located((By.XPATH, '//h1[text()="You’ve updated your Netflix Household"]')))
-                                    logger.info("Update successful message appeared")
-                                    break
-                                except TimeoutException:
-                                    logger.error("Timeout waiting for the update successful message to appear")
-                    except TimeoutException as exception:
-                        logger.error("Timeout waiting for 'Set Primary Location' button or invalid link message", 
-                                   extra={"exception": str(exception)})
-
-                        if _ < retry_count - 1:
-                            logger.info("Retrying button click...")
-                            continue  # Retry clicking the button
-                        else:
-                            return "Timeout waiting for 'Set Primary Location' button or invalid link message", driver.page_source
-            except Exception as e:
-                logger.error("An error occurred while processing the link", 
-                           extra={"error": str(e)}, exc_info=True)
-                return f"An error occurred while processing the link: {e}", driver.page_source
-            finally:
+            metrics.set("netflix_workflow_stage", 4)
+            for attempt in range(3):
+                try:
+                    element = WebDriverWait(driver, 5).until(check_button_or_message)
+                    if "This link is no longer valid" in driver.page_source:
+                        metrics.workflow_finished(False, time.monotonic() - started)
+                        return "This link is no longer valid", driver.page_source
+                    element.click()
+                    WebDriverWait(driver, 10).until(
+                        EC.visibility_of_element_located(
+                            (By.XPATH, '//h1[text()="You’ve updated your Netflix Household"]')
+                        )
+                    )
+                    logger.info("Netflix Household update succeeded")
+                    metrics.workflow_finished(True, time.monotonic() - started)
+                    return "Success", driver.page_source
+                except TimeoutException as exception:
+                    logger.error(
+                        "Timeout waiting for Netflix confirmation",
+                        extra={"exception": str(exception), "attempt": attempt + 1},
+                    )
+            metrics.workflow_finished(False, time.monotonic() - started)
+            return "Timeout waiting for Netflix confirmation", driver.page_source
+        except Exception as exception:
+            if driver is None:
+                metrics.update(
+                    netflix_selenium_available=0,
+                    netflix_selenium_last_start_timestamp_seconds=time.time(),
+                )
+                metrics.increment("netflix_selenium_start_failure_total")
+            logger.error(
+                "An error occurred while processing Netflix update",
+                extra={"error": str(exception)},
+                exc_info=True,
+            )
+            metrics.workflow_finished(False, time.monotonic() - started)
+            return f"An error occurred while processing the link: {exception}", (
+                driver.page_source if driver else None
+            )
+        finally:
+            if driver is not None:
                 driver.quit()
+
+    metrics.workflow_finished(False, time.monotonic() - started)
+    return "Netflix update link not found", None
 
 
 
 def fetch_last_unseen_email():
     """Gets body of last unseen mail from inbox"""
-    #print("Fetching last unseen email...")
+    started = time.monotonic()
     missing_vars = get_missing_env_vars()
     if missing_vars:
         logger.error("Missing required environment variables", extra={"missing": missing_vars})
+        metrics.poll_failure(time.monotonic() - started)
         time.sleep(20)
         return
 
@@ -211,6 +232,7 @@ def fetch_last_unseen_email():
 
             if result == 'OK':
                 message_ids = data[0].split()
+                metrics.poll_success(0, time.monotonic() - started)
                 for message_id in message_ids:
                     result, message_data = mail.fetch(message_id, '(RFC822)')
                     if result == 'OK':
@@ -218,7 +240,9 @@ def fetch_last_unseen_email():
                         msg = email.message_from_bytes(raw_email)
                         subject = msg.get('Subject', '')
                         if subject.startswith("Important: How to update your Netflix Household"):
-                            logger.info("Email identified as relevant", extra={"subject": subject})
+                            logger.info("Email identified as relevant")
+                            metrics.increment("netflix_matching_emails_total")
+                            metrics.set("netflix_matching_emails_pending", 1)
                             body = None
                             for part in msg.walk():
                                 if part.get_content_type() == "text/plain":
@@ -228,28 +252,34 @@ def fetch_last_unseen_email():
                                         body = payload.decode(charset, errors='replace')
                                     mail.store(message_id, '+FLAGS', '\\Seen')
                                     open_link_with_selenium(body)
+                                    metrics.set("netflix_matching_emails_pending", 0)
                                     break
                             if body:
                                 break
             else:
-                logger.info("No relevant email found or processed")
+                metrics.poll_failure(time.monotonic() - started)
+                logger.error("IMAP search failed")
             break
 
         except imaplib.IMAP4.error as e:
             logger.error("IMAP error occurred", extra={"error": str(e)}, exc_info=True)
+            metrics.poll_failure(time.monotonic() - started)
             time.sleep(20)
             
 
         except ConnectionResetError as e:
             logger.error("ConnectionResetError occurred", extra={"error": str(e)}, exc_info=True)
+            metrics.poll_failure(time.monotonic() - started)
             time.sleep(20)
 
         except OSError as e:
             logger.error("OSError occurred", extra={"error": str(e)}, exc_info=True)
+            metrics.poll_failure(time.monotonic() - started)
             time.sleep(20)
 
         except Exception as e:
             logger.error("An error occurred", extra={"error": str(e)}, exc_info=True)
+            metrics.poll_failure(time.monotonic() - started)
             time.sleep(20)
             
 
@@ -265,6 +295,10 @@ def fetch_last_unseen_email():
 
 
 if __name__ == "__main__":
-    while True:
-        fetch_last_unseen_email()
-        time.sleep(5)
+    metrics.update(service_up=1)
+    try:
+        while True:
+            fetch_last_unseen_email()
+            time.sleep(5)
+    finally:
+        metrics.set("service_up", 0)

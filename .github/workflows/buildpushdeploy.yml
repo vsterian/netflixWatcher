@@ -10,7 +10,22 @@ env:
   CONTAINER_NAME: netflixwatcher
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - run: pip install -r app/requirements.txt
+    - run: python -m unittest discover -s tests
+    - run: |
+        install -m 600 /dev/null .env
+        docker compose config --quiet
+    - run: shellcheck Setup/*.sh
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
 
     steps:
@@ -38,4 +53,13 @@ jobs:
         ssh -i "$RUNNER_TEMP/rpi_deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -p ${{ env.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_SERVER }} << EOF
           cd /home/${{ secrets.SSH_USER }}/repos/netflixWatcher
           docker compose up -d --build
+          for attempt in 1 2 3 4 5 6; do
+            if test -s /var/lib/rpi-observability/netflix-watcher/netflix-watcher.prom && \
+               test -s /var/lib/rpi-observability/netflix-watcher/netflix-watcher-scheduler.prom; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Netflix Watcher observability metrics were not published" >&2
+          exit 1
         EOF

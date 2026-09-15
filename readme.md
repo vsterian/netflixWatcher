@@ -74,3 +74,33 @@ docker-compose up -d
 
 * If there's an IMAP error or a `ConnectionResetError` while fetching emails, the script will retry after a delay of 20 seconds.
 * All other exceptions are logged in the console.
+
+## Observability
+
+Worker atomically publishes Prometheus text metrics to
+`/var/lib/rpi-observability/netflix-watcher/netflix-watcher.prom`. Scheduler
+publishes separate runtime and restart-attempt state to
+`netflix-watcher-scheduler.prom`. Metrics cover process and polling heartbeat,
+successful IMAP access, pending matching messages, Selenium startup, workflow
+stage and result, and scheduler state. Metrics contain no email address, subject,
+confirmation URL, credential, or other personal-data label.
+
+Common operational metrics use `service_up`,
+`last_loop_success_timestamp_seconds`,
+`last_dependency_success_timestamp_seconds`, `consecutive_failures`,
+`operations_success_total`, `operations_failure_total`, and
+`last_operation_duration_seconds` with only `product="netflix-watcher"` as
+label.
+
+Successful IMAP polls with zero matching messages represent healthy idle state.
+No email is not a failure. Workflow stage values are `0` idle, `1` polling,
+`2` Selenium startup, `3` login, `4` confirmation, `5` success, and `6` failure.
+
+Observability is part of feature definition of done. Any new business workflow,
+dependency, schedule, retry policy, or failure mode must update emitted metrics,
+central Grafana dashboard/alerts, tests, and project Wiki documentation. If
+dashboard behavior is unaffected, change documentation must state why.
+
+Scheduler intentionally has no Docker socket mount. Its existing restart attempt
+therefore reports failure unless deployment supplies a separately approved,
+least-privilege restart mechanism.

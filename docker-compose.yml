@@ -5,14 +5,18 @@ services:
     restart: always
     env_file:
       - .env
+    volumes:
+      - type: bind
+        source: /var/lib/rpi-observability/netflix-watcher
+        target: /metrics
 
   scheduler:
     image: bash
     container_name: netflixwatcher_scheduler
     restart: unless-stopped
-    command: >
-      sh -c "while true; do
-      sleep $(( $(date -d '18:00:00' +%s) - $(date +%s) ));
-      docker restart netflixwatcher;
-      sleep 86400;
-      done"
+    command: ["bash", "/scheduler.sh"]
+    volumes:
+      - ./Setup/netflixwatcher_scheduler.sh:/scheduler.sh:ro
+      - type: bind
+        source: /var/lib/rpi-observability/netflix-watcher
+        target: /metrics
