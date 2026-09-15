@@ -7,7 +7,7 @@ services:
       - .env
     volumes:
       - type: bind
-        source: /var/lib/rpi-observability/netflix-watcher
+        source: /var/lib/rpi-observability/apps/netflix-watcher
         target: /metrics
 
   scheduler:
@@ -18,5 +18,5 @@ services:
     volumes:
       - ./Setup/netflixwatcher_scheduler.sh:/scheduler.sh:ro
       - type: bind
-        source: /var/lib/rpi-observability/netflix-watcher
+        source: /var/lib/rpi-observability/apps/netflix-watcher
         target: /metrics
