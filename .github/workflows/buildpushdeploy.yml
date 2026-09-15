@@ -6,7 +6,7 @@ on:
 
 env:
   #REGISTRY_NAME: <your-acr-registry>  # replace with your ACR name
-  SSH_PORT: 30000
+  SSH_PORT: 21
   CONTAINER_NAME: netflixwatcher
 
 jobs:
@@ -30,12 +30,12 @@ jobs:
       run: |
         rsync -avz \
         -e "ssh -i $RUNNER_TEMP/rpi_deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -p ${{ env.SSH_PORT }}" ./ \
-        ${{ secrets.SSH_USER }}@${{ secrets.SSH_SERVER }}:/home/${{ secrets.SSH_USER }}/netflixWatcher/
+        ${{ secrets.SSH_USER }}@${{ secrets.SSH_SERVER }}:/home/${{ secrets.SSH_USER }}/repos/netflixWatcher/
 
     # Run docker compose on Raspberry Pi
     - name: Run Docker Compose on Raspberry Pi
       run: |
         ssh -i "$RUNNER_TEMP/rpi_deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -p ${{ env.SSH_PORT }} ${{ secrets.SSH_USER }}@${{ secrets.SSH_SERVER }} << EOF
-          cd /home/${{ secrets.SSH_USER }}/netflixWatcher
+          cd /home/${{ secrets.SSH_USER }}/repos/netflixWatcher
           docker compose up -d --build
         EOF
