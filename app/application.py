@@ -54,50 +54,40 @@ def login_to_netflix(driver):
     if not NETFLIX_LOGIN or not NETFLIX_PASSWORD:
         logger.error("Missing Netflix credentials; cannot perform login")
         return False
-    
 
     try:
-        # Check if the userLoginId and password fields are visible
-        email_field = driver.find_element('name', 'userLoginId')
-        password_field = driver.find_element('name', 'password')
-        if  password_field.is_displayed(): #email_field.is_displayed() and
-            email_field.send_keys(NETFLIX_LOGIN)
-            logger.info("Filled in Netflix email", extra={"email": NETFLIX_LOGIN})
-            password_field.send_keys(NETFLIX_PASSWORD)
-            logger.info("Filled in Netflix password")
-            password_field.send_keys(Keys.RETURN)
-            logger.info("Pressed Enter to log in")
-            time.sleep(2)
-            return True  # Return True indicating successful login
-    except NoSuchElementException:
-        pass
-    
-    try:
-        # Check if the "Email or Phone number" field is visible
-        use_password_field = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
-        if use_password_field.is_displayed():
-            # Click on "Use Password" button
-            use_password_button = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
-            use_password_button.click()
-            logger.info("Clicked 'Use Password' button")
-            time.sleep(2)
+        WebDriverWait(driver, 10).until(EC.any_of(
+            EC.presence_of_element_located((By.NAME, 'userLoginId')),
+            EC.presence_of_element_located((By.XPATH, '//button[@data-uia="login-toggle-button"]')),
+            EC.presence_of_element_located((By.XPATH, '//button[@data-uia="set-primary-location-action"]')),
+        ))
+    except TimeoutException:
+        logger.error("Netflix login and household controls not found")
+        return False
 
-            # Use the same username and password
-            email_field = driver.find_element('name', 'userLoginId')
-            password_field = driver.find_element('name', 'password')
-            email_field.send_keys(NETFLIX_LOGIN)
-            logger.info("Filled in Netflix email", extra={"email": NETFLIX_LOGIN})
-            password_field.send_keys(NETFLIX_PASSWORD)
-            logger.info("Filled in Netflix password")
-            password_field.send_keys(Keys.RETURN)
-            logger.info("Pressed Enter to log in")
-            time.sleep(2)
-            return True  # Return True indicating successful login
-    except NoSuchElementException:
-        pass
+    email_fields = driver.find_elements(By.NAME, 'userLoginId')
+    password_fields = driver.find_elements(By.NAME, 'password')
+    if not email_fields and driver.find_elements(By.XPATH, '//button[@data-uia="login-toggle-button"]'):
+        driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]').click()
+        email_fields = WebDriverWait(driver, 10).until(
+            lambda current_driver: current_driver.find_elements(By.NAME, 'userLoginId')
+        )
+        password_fields = driver.find_elements(By.NAME, 'password')
 
-    logger.info("Login fields not found. Assuming already logged in.")
-    return True  # Return False indicating that login was not required
+    if not email_fields:
+        logger.info("Netflix household controls available; login not required")
+        return True
+    if not password_fields or not password_fields[0].is_displayed():
+        logger.error("Netflix password field not found")
+        return False
+
+    email_fields[0].send_keys(NETFLIX_LOGIN)
+    logger.info("Filled in Netflix email", extra={"email": NETFLIX_LOGIN})
+    password_fields[0].send_keys(NETFLIX_PASSWORD)
+    logger.info("Filled in Netflix password")
+    password_fields[0].send_keys(Keys.RETURN)
+    logger.info("Pressed Enter to log in")
+    return True
 
 
     
