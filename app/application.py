@@ -77,7 +77,15 @@ def login_to_netflix(driver):
     if not email_fields:
         logger.info("Netflix household controls available; login not required")
         return True
-    if not password_fields or not password_fields[0].is_displayed():
+    if not password_fields:
+        try:
+            password_fields = [WebDriverWait(driver, 10).until(
+                EC.visibility_of_element_located((By.NAME, 'password'))
+            )]
+        except TimeoutException:
+            logger.error("Netflix password field not found")
+            return False
+    if not password_fields[0].is_displayed():
         logger.error("Netflix password field not found")
         return False
 

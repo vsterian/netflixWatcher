@@ -72,13 +72,15 @@ class ApplicationMetricsTest(unittest.TestCase):
             application.NoSuchElementException(),
             email_field,
         ]
-        driver.find_elements.side_effect = [[email_field], [password_field]]
+        driver.find_elements.side_effect = [[email_field], []]
 
         with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
             application, "NETFLIX_PASSWORD", "configured"
-        ):
+        ), patch.object(application, "WebDriverWait") as wait:
+            wait.return_value.until.side_effect = [True, password_field]
             self.assertTrue(application.login_to_netflix(driver))
 
+        self.assertEqual(wait.call_count, 2)
         email_field.send_keys.assert_called_once_with("configured")
         password_field.send_keys.assert_any_call("configured")
         password_field.send_keys.assert_any_call(application.Keys.RETURN)
@@ -133,7 +135,7 @@ class ApplicationMetricsTest(unittest.TestCase):
         with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
             application, "NETFLIX_PASSWORD", "configured"
         ), patch.object(application, "WebDriverWait") as wait:
-            wait.return_value.until.return_value = True
+            wait.return_value.until.side_effect = [True, application.TimeoutException()]
             self.assertFalse(application.login_to_netflix(driver))
 
     def test_link_extraction_and_missing_environment(self):
