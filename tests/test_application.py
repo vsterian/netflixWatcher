@@ -99,6 +99,19 @@ class ApplicationMetricsTest(unittest.TestCase):
         email_field.send_keys.assert_called_once_with("configured")
         password_field.send_keys.assert_any_call("configured")
 
+    def test_email_code_sign_in_fails_without_requesting_code(self):
+        email_field, hidden_password, continue_button = Mock(), Mock(), Mock()
+        hidden_password.is_displayed.return_value = False
+        driver = Mock()
+        driver.find_elements.side_effect = [[email_field], [hidden_password], [continue_button]]
+        with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
+            application, "NETFLIX_PASSWORD", "configured"
+        ), patch.object(application, "WebDriverWait") as wait:
+            wait.return_value.until.return_value = True
+            self.assertFalse(application.login_to_netflix(driver))
+        email_field.send_keys.assert_not_called()
+        continue_button.click.assert_not_called()
+
     def test_authenticated_page_requires_household_control(self):
         household_button = Mock()
         driver = Mock()
@@ -227,6 +240,27 @@ class ApplicationMetricsTest(unittest.TestCase):
             self.assertEqual(values(replacement.path)["netflix_workflow_failure_total"], 2)
             stale_driver.quit.assert_called_once_with()
             timeout_driver.quit.assert_called_once_with()
+
+    def test_link_becomes_invalid_after_one_click(self):
+        button = Mock()
+        button.is_displayed.return_value = True
+        button.is_enabled.return_value = True
+        driver = Mock(page_source="pending")
+        driver.find_element.return_value = button
+        button.click.side_effect = lambda: setattr(driver, "page_source", "This link is no longer valid")
+        with TemporaryDirectory() as directory:
+            replacement = Metrics(Path(directory) / "netflix.prom")
+            with patch.object(application, "metrics", replacement), patch.object(
+                application.webdriver, "Chrome", return_value=driver
+            ), patch.object(application, "login_to_netflix", return_value=True), patch.object(
+                application, "WebDriverWait", side_effect=lambda current_driver, timeout: ImmediateWait(current_driver)
+            ):
+                result, _ = application.open_link_with_selenium(
+                    "https://example.invalid/update-primary-location/token"
+                )
+            self.assertEqual(result, "This link is no longer valid")
+            self.assertEqual(values(replacement.path)["netflix_workflow_failure_total"], 1)
+            button.click.assert_called_once_with()
 
     def test_browser_flow_stops_when_login_is_rejected(self):
         driver = Mock()
