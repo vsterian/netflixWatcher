@@ -9,3 +9,8 @@ variables `TS_OIDC_CLIENT_ID` and `TS_AUDIENCE` for a Tailscale federated identi
 restricted to this repository's main branch and this deployment workflow.
 Grant `tag:pi-ci` only TCP 22 on the Pi. Retain the existing deployment SSH key and
 user/path secrets. Tailscale authentication does not replace SSH authentication.
+
+The Tailscale action logs out its ephemeral runner in its automatic post-job
+cleanup, including failed deployments. Tailscale then removes the machine; no
+permanent runner enrollment is retained. Abrupt runner loss can delay automatic
+removal until the ephemeral node expires.
