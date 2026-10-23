@@ -76,7 +76,7 @@ jobs:
     # Run docker compose on Raspberry Pi
     - name: Run Docker Compose on Raspberry Pi
       run: |
-        ssh -i "$RUNNER_TEMP/rpi_deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -p ${{ env.SSH_PORT }} ${{ secrets.SSH_USER }}@100.109.96.69 << 'EOF'
+        ssh -i "$RUNNER_TEMP/rpi_deploy_key" -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -p ${{ env.SSH_PORT }} ${{ secrets.SSH_USER }}@100.109.96.69 'bash -se' << 'EOF'
           set -eu
           mkdir -p "$HOME/.cache"
           exec 9>"$HOME/.cache/pi-deploy.lock"
