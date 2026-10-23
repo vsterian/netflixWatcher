@@ -14,3 +14,6 @@ The Tailscale action logs out its ephemeral runner in its automatic post-job
 cleanup, including failed deployments. Tailscale then removes the machine; no
 permanent runner enrollment is retained. Abrupt runner loss can delay automatic
 removal until the ephemeral node expires.
+
+Deployments share a Pi-side `flock` across repositories to prevent concurrent
+Docker builds exhausting the Pi. Jobs wait up to 30 minutes for the lock.
