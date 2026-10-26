@@ -54,50 +54,53 @@ def login_to_netflix(driver):
     if not NETFLIX_LOGIN or not NETFLIX_PASSWORD:
         logger.error("Missing Netflix credentials; cannot perform login")
         return False
-    
 
     try:
-        # Check if the userLoginId and password fields are visible
-        email_field = driver.find_element('name', 'userLoginId')
-        password_field = driver.find_element('name', 'password')
-        if  password_field.is_displayed(): #email_field.is_displayed() and
-            email_field.send_keys(NETFLIX_LOGIN)
-            logger.info("Filled in Netflix email", extra={"email": NETFLIX_LOGIN})
-            password_field.send_keys(NETFLIX_PASSWORD)
-            logger.info("Filled in Netflix password")
-            password_field.send_keys(Keys.RETURN)
-            logger.info("Pressed Enter to log in")
-            time.sleep(2)
-            return True  # Return True indicating successful login
-    except NoSuchElementException:
-        pass
-    
-    try:
-        # Check if the "Email or Phone number" field is visible
-        use_password_field = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
-        if use_password_field.is_displayed():
-            # Click on "Use Password" button
-            use_password_button = driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]')
-            use_password_button.click()
-            logger.info("Clicked 'Use Password' button")
-            time.sleep(2)
+        WebDriverWait(driver, 10).until(EC.any_of(
+            EC.presence_of_element_located((By.NAME, 'userLoginId')),
+            EC.presence_of_element_located((By.XPATH, '//button[@data-uia="login-toggle-button"]')),
+            EC.presence_of_element_located((By.XPATH, '//button[@data-uia="set-primary-location-action"]')),
+        ))
+    except TimeoutException:
+        logger.error("Netflix login and household controls not found")
+        return False
 
-            # Use the same username and password
-            email_field = driver.find_element('name', 'userLoginId')
-            password_field = driver.find_element('name', 'password')
-            email_field.send_keys(NETFLIX_LOGIN)
-            logger.info("Filled in Netflix email", extra={"email": NETFLIX_LOGIN})
-            password_field.send_keys(NETFLIX_PASSWORD)
-            logger.info("Filled in Netflix password")
-            password_field.send_keys(Keys.RETURN)
-            logger.info("Pressed Enter to log in")
-            time.sleep(2)
-            return True  # Return True indicating successful login
-    except NoSuchElementException:
-        pass
+    email_fields = driver.find_elements(By.NAME, 'userLoginId')
+    password_fields = driver.find_elements(By.NAME, 'password')
+    if not email_fields and driver.find_elements(By.XPATH, '//button[@data-uia="login-toggle-button"]'):
+        driver.find_element(By.XPATH, '//button[@data-uia="login-toggle-button"]').click()
+        email_fields = WebDriverWait(driver, 10).until(
+            lambda current_driver: current_driver.find_elements(By.NAME, 'userLoginId')
+        )
+        password_fields = driver.find_elements(By.NAME, 'password')
 
-    logger.info("Login fields not found. Assuming already logged in.")
-    return True  # Return False indicating that login was not required
+    if not email_fields:
+        logger.info("Netflix household controls available; login not required")
+        return True
+    if password_fields and not password_fields[0].is_displayed():
+        continue_buttons = driver.find_elements(By.XPATH, '//button[@data-uia="continue-button"]')
+        if continue_buttons:
+            logger.error("Netflix requires email-code sign-in; password login unavailable")
+            return False
+    if not password_fields:
+        try:
+            password_fields = [WebDriverWait(driver, 10).until(
+                EC.visibility_of_element_located((By.NAME, 'password'))
+            )]
+        except TimeoutException:
+            logger.error("Netflix password field not found")
+            return False
+    if not password_fields[0].is_displayed():
+        logger.error("Netflix password field not found")
+        return False
+
+    email_fields[0].send_keys(NETFLIX_LOGIN)
+    logger.info("Filled in Netflix email")
+    password_fields[0].send_keys(NETFLIX_PASSWORD)
+    logger.info("Filled in Netflix password")
+    password_fields[0].send_keys(Keys.RETURN)
+    logger.info("Pressed Enter to log in")
+    return True
 
 
     
@@ -140,7 +143,8 @@ def open_link_with_selenium(body):
             time.sleep(2)
             metrics.set("netflix_workflow_stage", 3)
             if not login_to_netflix(driver):
-                raise RuntimeError("Netflix login failed")
+                metrics.workflow_finished(False, time.monotonic() - started)
+                return "Netflix login failed", driver.page_source
 
             def check_button_or_message(current_driver):
                 try:
@@ -164,26 +168,28 @@ def open_link_with_selenium(body):
                 return None
 
             metrics.set("netflix_workflow_stage", 4)
-            for attempt in range(3):
-                try:
-                    element = WebDriverWait(driver, 5).until(check_button_or_message)
-                    if "This link is no longer valid" in driver.page_source:
-                        metrics.workflow_finished(False, time.monotonic() - started)
-                        return "This link is no longer valid", driver.page_source
-                    element.click()
-                    WebDriverWait(driver, 10).until(
-                        EC.visibility_of_element_located(
-                            (By.XPATH, '//h1[text()="You’ve updated your Netflix Household"]')
-                        )
-                    )
-                    logger.info("Netflix Household update succeeded")
-                    metrics.workflow_finished(True, time.monotonic() - started)
-                    return "Success", driver.page_source
-                except TimeoutException as exception:
-                    logger.error(
-                        "Timeout waiting for Netflix confirmation",
-                        extra={"exception": str(exception), "attempt": attempt + 1},
-                    )
+            try:
+                element = WebDriverWait(driver, 5).until(check_button_or_message)
+                if "This link is no longer valid" in driver.page_source:
+                    metrics.workflow_finished(False, time.monotonic() - started)
+                    return "This link is no longer valid", driver.page_source
+                element.click()
+                WebDriverWait(driver, 10).until(EC.any_of(
+                    EC.visibility_of_element_located(
+                        (By.XPATH, '//h1[text()="You’ve updated your Netflix Household"]')
+                    ),
+                    EC.visibility_of_element_located(
+                        (By.XPATH, '//h1[text()="This link is no longer valid"]')
+                    ),
+                ))
+                if "This link is no longer valid" in driver.page_source:
+                    metrics.workflow_finished(False, time.monotonic() - started)
+                    return "This link is no longer valid", driver.page_source
+                logger.info("Netflix Household update succeeded")
+                metrics.workflow_finished(True, time.monotonic() - started)
+                return "Success", driver.page_source
+            except TimeoutException:
+                logger.error("Timeout waiting for Netflix confirmation")
             metrics.workflow_finished(False, time.monotonic() - started)
             return "Timeout waiting for Netflix confirmation", driver.page_source
         except Exception as exception:
@@ -224,7 +230,7 @@ def fetch_last_unseen_email():
     while True:
         mail = None
         try:
-            mail = imaplib.IMAP4_SSL(EMAIL_IMAP)
+            mail = imaplib.IMAP4_SSL(EMAIL_IMAP, timeout=30)
             mail.login(EMAIL_LOGIN, EMAIL_PASSWORD)
             mail.select('inbox')
 
@@ -261,19 +267,8 @@ def fetch_last_unseen_email():
                 logger.error("IMAP search failed")
             break
 
-        except imaplib.IMAP4.error as e:
-            logger.error("IMAP error occurred", extra={"error": str(e)}, exc_info=True)
-            metrics.poll_failure(time.monotonic() - started)
-            time.sleep(20)
-            
-
-        except ConnectionResetError as e:
-            logger.error("ConnectionResetError occurred", extra={"error": str(e)}, exc_info=True)
-            metrics.poll_failure(time.monotonic() - started)
-            time.sleep(20)
-
-        except OSError as e:
-            logger.error("OSError occurred", extra={"error": str(e)}, exc_info=True)
+        except (imaplib.IMAP4.error, OSError) as e:
+            logger.warning("IMAP connection failed; retrying", extra={"error_type": type(e).__name__})
             metrics.poll_failure(time.monotonic() - started)
             time.sleep(20)
 

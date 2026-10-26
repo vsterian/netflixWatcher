@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 set -u
 
 metrics_file=${METRICS_FILE:-/metrics/netflix-watcher-scheduler.prom}
@@ -11,7 +11,6 @@ success_total=0
 failure_total=0
 
 write_metrics() {
-    local temporary
     mkdir -p "$(dirname "$metrics_file")"
     temporary=$(mktemp "${metrics_file}.tmp.XXXXXX")
     {
@@ -33,16 +32,14 @@ shutdown() {
     write_metrics
     exit 0
 }
+if [ "${NETFLIX_SCHEDULER_TEST_MODE:-0}" != 1 ]; then
 trap shutdown TERM INT
 
 while true; do
     now=$(date +%s)
-    hour=$(date +%H)
-    minute=$(date +%M)
-    second=$(date +%S)
-    seconds_today=$((10#$hour * 3600 + 10#$minute * 60 + 10#$second))
+    seconds_today=$(date +%H:%M:%S | awk -F: '{print $1 * 3600 + $2 * 60 + $3}')
     target_seconds=$((18 * 3600))
-    if (( seconds_today < target_seconds )); then
+    if [ "$seconds_today" -lt "$target_seconds" ]; then
         delay=$((target_seconds - seconds_today))
     else
         delay=$((86400 - seconds_today + target_seconds))
@@ -51,7 +48,7 @@ while true; do
     last_heartbeat=$now
     write_metrics
     sleep "$delay" &
-    wait $!
+    wait "$!"
 
     last_attempt=$(date +%s)
     last_heartbeat=$last_attempt
@@ -64,3 +61,4 @@ while true; do
     fi
     write_metrics
 done
+fi
