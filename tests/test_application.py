@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from urllib3.exceptions import MaxRetryError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -536,15 +537,21 @@ class ApplicationMetricsTest(unittest.TestCase):
             application.stop_watcher(None, None)
 
     def test_dead_warm_browser_rebuilt_before_navigation(self):
-        old, fresh = Mock(), Mock()
-        type(old).window_handles = property(lambda _self: (_ for _ in ()).throw(application.WebDriverException("dead")))
-        application._browser = old
-        with TemporaryDirectory() as directory:
-            with patch.object(application, "metrics", Metrics(Path(directory) / "netflix.prom")), patch.object(
-                application.webdriver, "Chrome", return_value=fresh
-            ):
-                self.assertIs(application.get_browser(), fresh)
-        old.quit.assert_called_once()
+        failures = [application.WebDriverException("dead"), ConnectionError("refused"),
+                    MaxRetryError(None, '/session')]
+        for failure in failures:
+            with self.subTest(error=type(failure).__name__):
+                old, fresh = Mock(), Mock()
+                def dead(_self):
+                    raise failure
+                type(old).window_handles = property(dead)
+                application._browser = old
+                with TemporaryDirectory() as directory:
+                    with patch.object(application, "metrics", Metrics(Path(directory) / "netflix.prom")), patch.object(
+                        application.webdriver, "Chrome", return_value=fresh
+                    ):
+                        self.assertIs(application.get_browser(), fresh)
+                old.quit.assert_called_once()
 
     def test_dead_browser_does_not_escape_error_handling(self):
         driver = Mock()

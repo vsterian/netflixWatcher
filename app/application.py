@@ -128,7 +128,7 @@ def get_browser():
         try:
             _browser.window_handles
             return _browser
-        except WebDriverException:
+        except Exception:
             close_browser()
     started = time.monotonic()
     options = webdriver.ChromeOptions()
@@ -249,7 +249,7 @@ def open_link_with_selenium(body):
             if driver is not None:
                 try:
                     page = driver.page_source
-                except WebDriverException:
+                except Exception:
                     pass
             return f"An error occurred while processing the link: {exception}", page
         finally:
