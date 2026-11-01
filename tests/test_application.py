@@ -446,6 +446,95 @@ class ApplicationMetricsTest(unittest.TestCase):
             self.assertIsNone(application._browser)
             self.assertEqual(values(replacement.path)["netflix_browser_warm"], 0)
 
+    def test_mailbox_without_idle_rejected_and_closed(self):
+        mailbox = Mock()
+        mailbox.has_capability.return_value = False
+        with TemporaryDirectory() as directory:
+            replacement = Metrics(Path(directory) / "netflix.prom")
+            with patch.object(application, "metrics", replacement), patch.object(
+                application, "get_missing_env_vars", return_value=[]
+            ), patch.object(application, "IMAPClient", return_value=mailbox), patch.object(
+                application.time, "sleep", side_effect=SystemExit()
+            ):
+                with self.assertRaises(SystemExit):
+                    application.watch_mailbox()
+            mailbox.logout.assert_called_once()
+            mailbox.idle.assert_not_called()
+            self.assertEqual(values(replacement.path)["netflix_imap_connected"], 0)
+
+    def test_login_select_scan_and_idle_done_errors_close_session(self):
+        for method in ('login', 'select_folder', 'search', 'idle_done'):
+            with self.subTest(method=method), TemporaryDirectory() as directory:
+                mailbox = Mock()
+                mailbox.search.return_value = []
+                getattr(mailbox, method).side_effect = application.imaplib.IMAP4.error("protocol")
+                replacement = Metrics(Path(directory) / "netflix.prom")
+                with patch.object(application, "metrics", replacement), patch.object(
+                    application, "get_missing_env_vars", return_value=[]
+                ), patch.object(application, "IMAPClient", return_value=mailbox), patch.object(
+                    application.time, "sleep", side_effect=SystemExit()
+                ), patch.object(application, "get_browser"):
+                    with self.assertRaises(SystemExit):
+                        application.watch_mailbox()
+                mailbox.logout.assert_called_once()
+                published = values(replacement.path)
+                self.assertEqual(published["netflix_imap_connected"], 0)
+                self.assertEqual(published["netflix_imap_idle_active"], 0)
+                self.assertEqual(published["netflix_imap_poll_failure_total"], 1)
+
+    def test_missing_message_body_fails_without_marking_seen(self):
+        mailbox = Mock()
+        mailbox.search.return_value = [1]
+        mailbox.fetch.return_value = {}
+        with TemporaryDirectory() as directory:
+            with patch.object(application, "metrics", Metrics(Path(directory) / "netflix.prom")):
+                with self.assertRaises(application.imaplib.IMAP4.error):
+                    application.fetch_last_unseen_email(mailbox)
+        mailbox.add_flags.assert_not_called()
+
+    def test_unrelated_subject_is_not_marked_seen_or_opened(self):
+        mailbox = Mock()
+        mailbox.search.return_value = [1]
+        mailbox.fetch.return_value = {1: {b'BODY[]': b'Subject: Other Netflix notice\r\n\r\nbody'}}
+        with TemporaryDirectory() as directory:
+            with patch.object(application, "metrics", Metrics(Path(directory) / "netflix.prom")), patch.object(
+                application, "open_link_with_selenium"
+            ) as workflow:
+                application.fetch_last_unseen_email(mailbox)
+        mailbox.add_flags.assert_not_called()
+        workflow.assert_not_called()
+
+    def test_multiple_messages_use_stable_uids_and_peek(self):
+        mailbox = Mock()
+        mailbox.search.return_value = [11, 22]
+        message = MatchingMailbox().fetch([1], [])[1][b'BODY[]']
+        mailbox.fetch.side_effect = [{11: {b'BODY[]': message}}, {22: {b'BODY[]': message}}]
+        with TemporaryDirectory() as directory:
+            replacement = Metrics(Path(directory) / "netflix.prom")
+            with patch.object(application, "metrics", replacement), patch.object(
+                application, "open_link_with_selenium", return_value=("Success", None)
+            ) as workflow:
+                application.fetch_last_unseen_email(mailbox)
+            self.assertEqual(workflow.call_count, 2)
+            self.assertEqual(mailbox.fetch.call_args_list[0].args, ([11], ['BODY.PEEK[]']))
+            self.assertEqual(mailbox.fetch.call_args_list[1].args, ([22], ['BODY.PEEK[]']))
+            self.assertEqual(values(replacement.path)["netflix_matching_emails_total"], 2)
+
+    def test_browser_quit_failure_still_clears_cache(self):
+        driver = Mock()
+        driver.quit.side_effect = application.WebDriverException("already dead")
+        application._browser = driver
+        with TemporaryDirectory() as directory:
+            replacement = Metrics(Path(directory) / "netflix.prom")
+            with patch.object(application, "metrics", replacement):
+                application.close_browser()
+            self.assertIsNone(application._browser)
+            self.assertEqual(values(replacement.path)["netflix_browser_warm"], 0)
+
+    def test_stop_signal_uses_graceful_shutdown(self):
+        with self.assertRaises(SystemExit):
+            application.stop_watcher(None, None)
+
     def test_dead_warm_browser_rebuilt_before_navigation(self):
         old, fresh = Mock(), Mock()
         type(old).window_handles = property(lambda _self: (_ for _ in ()).throw(application.WebDriverException("dead")))
