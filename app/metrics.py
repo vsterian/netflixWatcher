@@ -38,7 +38,7 @@ class Metrics:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or Path(os.getenv("METRICS_FILE", str(DEFAULT_METRICS_FILE)))
         self._lock = threading.Lock()
-        self._last_poll_publish = 0.0
+        self._last_poll_publish = float("-inf")
         self._values: dict[str, float] = {
             "service_up": 0,
             "netflix_watcher_process_start_timestamp_seconds": time.time(),

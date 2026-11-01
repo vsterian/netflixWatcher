@@ -53,6 +53,14 @@ class MetricsTest(unittest.TestCase):
             self.assertEqual(published["netflix_imap_poll_success_total"], 3)
             self.assertEqual(published["netflix_matching_emails_pending"], 1)
 
+    def test_first_poll_publishes_even_at_fresh_machine_uptime(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "netflix.prom"
+            metrics = Metrics(path)
+            with patch("metrics.time.monotonic", return_value=0):
+                metrics.poll_success(0, 0.1)
+            self.assertEqual(values(path)["netflix_imap_poll_success"], 1)
+
     def test_workflow_success_and_failure(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "netflix.prom"
