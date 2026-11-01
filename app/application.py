@@ -10,7 +10,7 @@ from selenium.webdriver import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException
+from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver.chrome.service import Service
 from selenium.common.exceptions import NoSuchElementException
 from logger import setup_logger
@@ -123,7 +123,6 @@ def open_link_with_selenium(body):
         driver = None
         try:
             metrics.set("netflix_workflow_stage", 2)
-            service = Service('/usr/bin/chromedriver')
             options = webdriver.ChromeOptions()
             options.add_argument("--headless")
             options.add_argument("--no-sandbox")
@@ -131,7 +130,17 @@ def open_link_with_selenium(body):
             options.add_argument("--disable-gpu")
             options.add_argument("--remote-debugging-port=9222")
             os.environ['DISPLAY'] = ':99'
-            driver = webdriver.Chrome(options=options, service=service)
+            for attempt in range(2):
+                service = Service('/usr/bin/chromedriver')
+                try:
+                    driver = webdriver.Chrome(options=options, service=service)
+                    break
+                except WebDriverException:
+                    service.stop()
+                    if attempt:
+                        raise
+                    logger.warning("Browser startup failed; retrying once")
+                    time.sleep(2)
             metrics.update(
                 netflix_selenium_available=1,
                 netflix_selenium_last_start_timestamp_seconds=time.time(),

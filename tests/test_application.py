@@ -333,6 +333,34 @@ class ApplicationMetricsTest(unittest.TestCase):
             self.assertEqual(published["netflix_workflow_failure_total"], 1)
             self.assertNotIn("example.invalid", path.read_text(encoding="utf-8"))
 
+    def test_transient_browser_start_failure_retries_and_cleans_service(self):
+        driver = Mock()
+        for failures in (1, 2):
+            with self.subTest(failures=failures), TemporaryDirectory() as directory:
+                replacement = Metrics(Path(directory) / "netflix.prom")
+                services = [Mock(), Mock()]
+                outcomes = [application.WebDriverException("service unavailable")] * failures
+                if failures == 1:
+                    outcomes.append(driver)
+                with patch.object(application, "metrics", replacement), patch.object(
+                    application, "Service", side_effect=services
+                ), patch.object(application.webdriver, "Chrome", side_effect=outcomes) as chrome, patch.object(
+                    application, "login_to_netflix", return_value=False
+                ), patch.object(application.time, "sleep"):
+                    application.open_link_with_selenium(
+                        "https://example.invalid/update-primary-location/private"
+                    )
+                self.assertEqual(chrome.call_count, 2)
+                services[0].stop.assert_called_once_with()
+                published = values(replacement.path)
+                if failures == 1:
+                    services[1].stop.assert_not_called()
+                    driver.quit.assert_called_once_with()
+                    self.assertEqual(published["netflix_selenium_start_success_total"], 1)
+                else:
+                    services[1].stop.assert_called_once_with()
+                    self.assertEqual(published["netflix_selenium_start_failure_total"], 1)
+
     def test_browser_exception_is_reported_and_driver_closed(self):
         driver = Mock()
         driver.get.side_effect = RuntimeError("controlled browser failure")

@@ -2,6 +2,7 @@ services:
   netflixwatcher:
     build: .
     container_name: netflixwatcher
+    init: true
     restart: always
     env_file:
       - .env
