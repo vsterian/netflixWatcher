@@ -4,6 +4,8 @@ import email
 import re
 import time
 import os
+import signal
+from imapclient import IMAPClient
 from dotenv import load_dotenv
 from selenium import webdriver
 from selenium.webdriver import Keys
@@ -28,6 +30,7 @@ NETFLIX_EMAIL_SENDER = os.getenv('NETFLIX_EMAIL_SENDER')
 # Set up logger
 logger = setup_logger()
 metrics = Metrics()
+_browser = None
 
 
 def get_missing_env_vars():
@@ -106,6 +109,58 @@ def login_to_netflix(driver):
     
 
 
+def close_browser():
+    """Discard failed or stopped browser, including its child processes."""
+    global _browser
+    driver, _browser = _browser, None
+    metrics.set("netflix_browser_warm", 0)
+    if driver is not None:
+        try:
+            driver.quit()
+        except Exception:
+            logger.warning("Browser cleanup failed")
+
+
+def get_browser():
+    """Keep one browser ready; rebuild it after a failed workflow."""
+    global _browser
+    if _browser is not None:
+        try:
+            _browser.window_handles
+            return _browser
+        except WebDriverException:
+            close_browser()
+    started = time.monotonic()
+    options = webdriver.ChromeOptions()
+    options.page_load_strategy = "eager"
+    for argument in ("--headless", "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"):
+        options.add_argument(argument)
+    for attempt in range(2):
+        service = Service('/usr/bin/chromedriver')
+        try:
+            _browser = webdriver.Chrome(options=options, service=service)
+            _browser.set_page_load_timeout(30)
+            _browser.set_script_timeout(30)
+            break
+        except Exception as exception:
+            service.stop()
+            close_browser()
+            if attempt or not isinstance(exception, WebDriverException):
+                metrics.set("netflix_selenium_available", 0)
+                metrics.increment("netflix_selenium_start_failure_total")
+                raise
+            logger.warning("Browser startup failed; retrying once")
+            time.sleep(2)
+    metrics.update(
+        netflix_browser_warm=1,
+        netflix_browser_start_duration_seconds=time.monotonic() - started,
+        netflix_selenium_available=1,
+        netflix_selenium_last_start_timestamp_seconds=time.time(),
+    )
+    metrics.increment("netflix_selenium_start_success_total")
+    return _browser
+
+
 def open_link_with_selenium(body):
     """Opens Selenium, logins to Netflix and clicks a button to confirm connection"""
     started = time.monotonic()
@@ -121,35 +176,14 @@ def open_link_with_selenium(body):
 
         logger.info("Found update link")
         driver = None
+        succeeded = False
         try:
             metrics.set("netflix_workflow_stage", 2)
-            options = webdriver.ChromeOptions()
-            options.add_argument("--headless")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--disable-gpu")
-            options.add_argument("--remote-debugging-port=9222")
-            os.environ['DISPLAY'] = ':99'
-            for attempt in range(2):
-                service = Service('/usr/bin/chromedriver')
-                try:
-                    driver = webdriver.Chrome(options=options, service=service)
-                    break
-                except WebDriverException:
-                    service.stop()
-                    if attempt:
-                        raise
-                    logger.warning("Browser startup failed; retrying once")
-                    time.sleep(2)
-            metrics.update(
-                netflix_selenium_available=1,
-                netflix_selenium_last_start_timestamp_seconds=time.time(),
-            )
-            metrics.increment("netflix_selenium_start_success_total")
-
+            driver = get_browser()
+            navigated = time.monotonic()
             driver.get(link)
             logger.info("Opened Netflix update link")
-            time.sleep(2)
+            metrics.set("netflix_navigation_duration_seconds", time.monotonic() - navigated)
             metrics.set("netflix_workflow_stage", 3)
             if not login_to_netflix(driver):
                 metrics.workflow_finished(False, time.monotonic() - started)
@@ -194,6 +228,7 @@ def open_link_with_selenium(body):
                 if "This link is no longer valid" in driver.page_source:
                     metrics.workflow_finished(False, time.monotonic() - started)
                     return "This link is no longer valid", driver.page_source
+                succeeded = True
                 logger.info("Netflix Household update succeeded")
                 metrics.workflow_finished(True, time.monotonic() - started)
                 return "Success", driver.page_source
@@ -203,106 +238,115 @@ def open_link_with_selenium(body):
             return "Timeout waiting for Netflix confirmation", driver.page_source
         except Exception as exception:
             if driver is None:
-                metrics.update(
-                    netflix_selenium_available=0,
-                    netflix_selenium_last_start_timestamp_seconds=time.time(),
-                )
-                metrics.increment("netflix_selenium_start_failure_total")
+                metrics.set("netflix_selenium_available", 0)
             logger.error(
                 "An error occurred while processing Netflix update",
                 extra={"error": str(exception)},
                 exc_info=True,
             )
             metrics.workflow_finished(False, time.monotonic() - started)
-            return f"An error occurred while processing the link: {exception}", (
-                driver.page_source if driver else None
-            )
-        finally:
+            page = None
             if driver is not None:
-                driver.quit()
+                try:
+                    page = driver.page_source
+                except WebDriverException:
+                    pass
+            return f"An error occurred while processing the link: {exception}", page
+        finally:
+            if succeeded:
+                try:
+                    driver.get("about:blank")
+                except Exception:
+                    close_browser()
+            else:
+                close_browser()
 
     metrics.workflow_finished(False, time.monotonic() - started)
     return "Netflix update link not found", None
 
 
 
-def fetch_last_unseen_email():
-    """Gets body of last unseen mail from inbox"""
+def fetch_last_unseen_email(mail):
+    """Process unseen Household messages on the existing UID-based connection."""
     started = time.monotonic()
-    missing_vars = get_missing_env_vars()
-    if missing_vars:
-        logger.error("Missing required environment variables", extra={"missing": missing_vars})
-        metrics.poll_failure(time.monotonic() - started)
-        time.sleep(20)
-        return
+    message_ids = mail.search(['UNSEEN', 'FROM', NETFLIX_EMAIL_SENDER])
+    metrics.poll_success(0, time.monotonic() - started)
+    for message_id in message_ids:
+        data = mail.fetch([message_id], ['BODY.PEEK[]'])
+        raw_email = data.get(message_id, {}).get(b'BODY[]')
+        if raw_email is None:
+            raise imaplib.IMAP4.error("IMAP response missing message body")
+        msg = email.message_from_bytes(raw_email)
+        if not msg.get('Subject', '').startswith("Important: How to update your Netflix Household"):
+            continue
+        logger.info("Email identified as relevant")
+        metrics.increment("netflix_matching_emails_total")
+        metrics.set("netflix_matching_emails_pending", 1)
+        try:
+            for part in msg.walk():
+                if part.get_content_type() == "text/plain":
+                    payload = part.get_payload(decode=True)
+                    body = payload.decode(part.get_content_charset() or 'utf-8', errors='replace') if payload else None
+                    mail.add_flags([message_id], [b'\\Seen'])
+                    open_link_with_selenium(body)
+                    break
+        finally:
+            metrics.set("netflix_matching_emails_pending", 0)
 
+
+def watch_mailbox():
+    """Reuse authenticated IMAP, reconcile after bounded IDLE waits, reconnect on errors."""
     while True:
         mail = None
+        started = time.monotonic()
         try:
-            mail = imaplib.IMAP4_SSL(EMAIL_IMAP, timeout=30)
+            missing = get_missing_env_vars()
+            if missing:
+                raise ValueError("Missing required environment variables: " + ", ".join(missing))
+            mail = IMAPClient(EMAIL_IMAP, timeout=30)
             mail.login(EMAIL_LOGIN, EMAIL_PASSWORD)
-            mail.select('inbox')
-
-            result, data = mail.search(None, f'(UNSEEN FROM "{NETFLIX_EMAIL_SENDER}")')
-
-            if result == 'OK':
-                message_ids = data[0].split()
-                metrics.poll_success(0, time.monotonic() - started)
-                for message_id in message_ids:
-                    result, message_data = mail.fetch(message_id, '(RFC822)')
-                    if result == 'OK':
-                        raw_email = message_data[0][1]
-                        msg = email.message_from_bytes(raw_email)
-                        subject = msg.get('Subject', '')
-                        if subject.startswith("Important: How to update your Netflix Household"):
-                            logger.info("Email identified as relevant")
-                            metrics.increment("netflix_matching_emails_total")
-                            metrics.set("netflix_matching_emails_pending", 1)
-                            body = None
-                            for part in msg.walk():
-                                if part.get_content_type() == "text/plain":
-                                    payload = part.get_payload(decode=True)
-                                    charset = part.get_content_charset() or 'utf-8'
-                                    if payload is not None:
-                                        body = payload.decode(charset, errors='replace')
-                                    mail.store(message_id, '+FLAGS', '\\Seen')
-                                    open_link_with_selenium(body)
-                                    metrics.set("netflix_matching_emails_pending", 0)
-                                    break
-                            if body:
-                                break
-            else:
-                metrics.poll_failure(time.monotonic() - started)
-                logger.error("IMAP search failed")
-            break
-
-        except (imaplib.IMAP4.error, OSError) as e:
-            logger.warning("IMAP connection failed; retrying", extra={"error_type": type(e).__name__})
+            mail.select_folder('INBOX')
+            if not mail.has_capability('IDLE'):
+                raise imaplib.IMAP4.error("Mailbox does not support IDLE")
+            metrics.set("netflix_imap_connected", 1)
+            logger.info("IMAP connected; IDLE enabled")
+            while True:
+                started = time.monotonic()
+                fetch_last_unseen_email(mail)
+                try:
+                    get_browser()
+                except Exception:
+                    logger.warning("Browser warmup failed; will retry")
+                mail.idle()
+                metrics.set("netflix_imap_idle_active", 1)
+                try:
+                    mail.idle_check(timeout=10)
+                finally:
+                    mail.idle_done()
+                    metrics.set("netflix_imap_idle_active", 0)
+        except Exception as exception:
+            logger.warning("IMAP session failed; reconnecting", extra={"error_type": type(exception).__name__})
             metrics.poll_failure(time.monotonic() - started)
-            time.sleep(20)
-
-        except Exception as e:
-            logger.error("An error occurred", extra={"error": str(e)}, exc_info=True)
-            metrics.poll_failure(time.monotonic() - started)
-            time.sleep(20)
-            
-
         finally:
-            try:
-                mail.close()
-                mail.logout()
-            except:
-                pass
+            metrics.update(netflix_imap_connected=0, netflix_imap_idle_active=0)
+            if mail is not None:
+                try:
+                    mail.logout()
+                except Exception:
+                    pass
+        time.sleep(20)
 
-    
 
+def stop_watcher(_signum, _frame):
+    """Let the main finally block close the warm browser on container stop."""
+    raise SystemExit(0)
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, stop_watcher)
     metrics.update(service_up=1)
     try:
-        while True:
-            fetch_last_unseen_email()
-            time.sleep(5)
+        watch_mailbox()
     finally:
+        close_browser()
         metrics.set("service_up", 0)
