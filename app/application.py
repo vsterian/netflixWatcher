@@ -60,9 +60,9 @@ def login_to_netflix(driver):
 
     try:
         WebDriverWait(driver, 10).until(EC.any_of(
-            EC.presence_of_element_located((By.NAME, 'userLoginId')),
-            EC.presence_of_element_located((By.XPATH, '//button[@data-uia="login-toggle-button"]')),
-            EC.presence_of_element_located((By.XPATH, '//button[@data-uia="set-primary-location-action"]')),
+            EC.visibility_of_element_located((By.NAME, 'userLoginId')),
+            EC.visibility_of_element_located((By.XPATH, '//button[@data-uia="login-toggle-button"]')),
+            EC.visibility_of_element_located((By.XPATH, '//button[@data-uia="set-primary-location-action"]')),
         ))
     except TimeoutException:
         logger.error("Netflix login and household controls not found")

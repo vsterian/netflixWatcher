@@ -125,6 +125,14 @@ class ApplicationMetricsTest(unittest.TestCase):
             wait.return_value.until.side_effect = application.TimeoutException()
             self.assertFalse(application.login_to_netflix(driver))
 
+        hidden = Mock()
+        hidden.is_displayed.return_value = False
+        driver.find_element.return_value = hidden
+        with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
+            application, "NETFLIX_PASSWORD", "configured"
+        ), patch.object(application, "WebDriverWait", side_effect=lambda driver, timeout: ImmediateWait(driver)):
+            self.assertFalse(application.login_to_netflix(driver))
+
     def test_login_fails_without_credentials(self):
         with patch.object(application, "NETFLIX_LOGIN", None), patch.object(
             application, "NETFLIX_PASSWORD", None
