@@ -253,6 +253,7 @@ class BrowserLifecycleTests(unittest.TestCase):
         self.page = self.browser.new_page.return_value
         self.browser.is_connected.return_value = True
         self.page.is_closed.return_value = False
+        self.page.evaluate.return_value = {"ready_state": "complete", "react_click_handler": False}
         application._browser = application._page = application._playwright = None
 
     def tearDown(self):
@@ -375,6 +376,8 @@ class BrowserLifecycleTests(unittest.TestCase):
         self.assertIn('Timeout', result)
         self.assertEqual(values(self.metrics.path)['netflix_workflow_failure_total'], 1)
         self.browser.close.assert_called_once()
+        self.page.remove_listener.assert_any_call('requestfailed', unittest.mock.ANY)
+        self.page.remove_listener.assert_any_call('response', unittest.mock.ANY)
 
     def test_content_failure_never_double_counts_terminal_outcomes(self):
         for state in ('login', 'invalid', 'success'):

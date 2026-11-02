@@ -5,10 +5,12 @@ import re
 import time
 import os
 import signal
+from uuid import uuid4
+from urllib.parse import urlsplit
 from imapclient import IMAPClient
 from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Error as BrowserError, TimeoutError as BrowserTimeout
-from logger import setup_logger
+from logger import setup_logger, setup_browser_trace
 from metrics import Metrics
 
 
@@ -149,12 +151,43 @@ def get_page():
     return _page
 
 
+def confirmation_state(page):
+    """Return only bounded diagnostic values; never page text, URLs or credentials."""
+    try:
+        return page.evaluate("""() => {
+            const button = document.querySelector('button[data-uia="set-primary-location-action"]');
+            let handler = false;
+            for (let node = button; node; node = node.parentElement) {
+                for (const key of Object.keys(node)) {
+                    if ((key.startsWith('__reactProps$') || key.startsWith('__reactEventHandlers$')) &&
+                        typeof node[key]?.onClick === 'function') handler = true;
+                }
+            }
+            const headings = [...document.querySelectorAll('h1')];
+            return {ready_state: document.readyState, household_present: !!button,
+                household_disabled: button ? button.disabled : null, react_click_handler: handler,
+                heading_count: headings.length,
+                success_text_present: headings.some(node => /you[’']ve updated your netflix household/i.test(node.textContent)),
+                error_text_present: headings.some(node => /something went wrong|try again|unable to|sorry/i.test(node.textContent)),
+                login_present: !!document.querySelector('input[name="userLoginId"]')};
+        }""")
+    except BrowserError:
+        return {"snapshot_unavailable": True}
+
+
 def open_link_with_browser(body):
     """Confirm once, recognize terminal pages and retain only healthy browser state."""
     started = time.monotonic()
+    run_id = uuid4().hex
+    phase = "input"
+    def trace(event, **fields):
+        logger.info("Netflix browser trace", extra={"run_id": run_id, "event": event,
+            "phase": phase, "elapsed_seconds": round(time.monotonic() - started, 6), **fields})
+    trace("started", warm_browser_present=_browser is not None)
     if not body:
         logger.warning("Email body is empty; skipping browser flow")
         metrics.workflow_finished(False, time.monotonic() - started)
+        trace("finished", outcome="empty_body")
         return "Empty email body", None
     for link in extract_links(body):
         if "update-primary-location" not in link:
@@ -162,39 +195,81 @@ def open_link_with_browser(body):
         logger.info("Found update link")
         page = None
         succeeded = False
+        phase = "browser_start"
+        diagnostics = {"click_completed": False, "request_failures": 0, "http_errors": 0}
+        def network_fields(request):
+            return {"resource_type": request.resource_type,
+                "method": request.method if request.method in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS") else "OTHER",
+                "same_origin": urlsplit(request.url).netloc == urlsplit(page.url).netloc}
+        def request_failed(request):
+            diagnostics["request_failures"] += 1
+            trace("request_failed", error_code=request.failure if re.fullmatch(r"net::ERR_[A-Z_]+", request.failure or "") else "unknown", **network_fields(request))
+        def page_error(_error):
+            trace("javascript_error")
+        def response_received(response):
+            if response.status >= 400:
+                diagnostics["http_errors"] += 1
+                trace("http_error", status=response.status, **network_fields(response.request))
+            elif response.request.resource_type in ("xhr", "fetch"):
+                trace("response", status=response.status, **network_fields(response.request))
         try:
             metrics.set("netflix_workflow_stage", 2)
             page = get_page()
+            page.on("requestfailed", request_failed)
+            page.on("response", response_received)
+            page.on("pageerror", page_error)
+            trace("browser_ready")
+            phase = "navigation"
             navigated = time.monotonic()
             page.goto(link, wait_until="domcontentloaded")
             logger.info("Opened Netflix update link")
+            trace("navigation_completed")
             metrics.set("netflix_navigation_duration_seconds", time.monotonic() - navigated)
             metrics.set("netflix_workflow_stage", 3)
+            phase = "login"
+            trace("login_starting")
             if not login_to_netflix(page):
                 content = page.content()
                 metrics.workflow_finished(False, time.monotonic() - started)
+                trace("finished", outcome="login_failed", browser_state=confirmation_state(page))
                 return "Netflix login failed", content
+            trace("login_completed")
             metrics.set("netflix_workflow_stage", 4)
+            phase = "confirmation_controls"
             page.locator(f'{HOUSEHOLD}:visible, {INVALID}:visible, {SUCCESS}:visible').first.wait_for(
                 state="visible", timeout=BUTTON_TIMEOUT_MS
             )
             if not page.locator(INVALID).is_visible() and not page.locator(SUCCESS).is_visible():
+                phase = "confirmation_click"
+                trace("click_starting", browser_state=confirmation_state(page))
                 page.locator(HOUSEHOLD).click(timeout=BUTTON_TIMEOUT_MS)
+                diagnostics["click_completed"] = True
+                trace("click_completed")
+                phase = "confirmation_result"
                 page.locator(f'{SUCCESS}:visible, {INVALID}:visible').first.wait_for(
                     state="visible", timeout=CONTROL_TIMEOUT_MS
                 )
             if page.locator(INVALID).is_visible():
                 content = page.content()
                 metrics.workflow_finished(False, time.monotonic() - started)
+                trace("finished", outcome="invalid_link")
                 return "This link is no longer valid", content
             content = page.content()
             succeeded = True
             logger.info("Netflix Household update succeeded")
             metrics.workflow_finished(True, time.monotonic() - started)
+            trace("finished", outcome="success")
             return "Success", content
         except BrowserTimeout:
-            logger.error("Timeout waiting for Netflix confirmation")
+            try:
+                state = confirmation_state(page) if page is not None else None
+            except Exception:
+                state = None
+            logger.error("Timeout waiting for Netflix confirmation", extra={
+                "run_id": run_id, "phase": phase, "browser_state": state, **diagnostics,
+            })
             metrics.workflow_finished(False, time.monotonic() - started)
+            trace("finished", outcome="timeout", browser_state=state, **diagnostics)
             return "Timeout waiting for Netflix confirmation", None
         except Exception as exception:
             if page is None:
@@ -202,8 +277,15 @@ def open_link_with_browser(body):
             # Playwright exceptions can include URLs and fill values in call logs.
             logger.error("Netflix browser workflow failed", extra={"error_type": type(exception).__name__})
             metrics.workflow_finished(False, time.monotonic() - started)
+            trace("finished", outcome="browser_error", error_type=type(exception).__name__)
             return "Browser workflow failed: " + type(exception).__name__, None
         finally:
+            if page is not None:
+                for event, callback in (("requestfailed", request_failed), ("response", response_received), ("pageerror", page_error)):
+                    try:
+                        page.remove_listener(event, callback)
+                    except Exception:
+                        pass
             if succeeded:
                 try:
                     page.goto("about:blank", wait_until="domcontentloaded")
@@ -212,6 +294,7 @@ def open_link_with_browser(body):
             else:
                 close_browser()
     metrics.workflow_finished(False, time.monotonic() - started)
+    trace("finished", outcome="link_not_found")
     return "Netflix update link not found", None
 
 
@@ -292,6 +375,7 @@ def stop_watcher(_signum, _frame):
 
 
 if __name__ == "__main__":
+    setup_browser_trace(logger, metrics.path.with_name("netflix-browser-traces.jsonl"))
     signal.signal(signal.SIGTERM, stop_watcher)
     metrics.update(service_up=1)
     try:

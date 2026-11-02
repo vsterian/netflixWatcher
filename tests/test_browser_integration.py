@@ -72,7 +72,7 @@ class BrowserParityTests(unittest.TestCase):
             def do_GET(self):
                 case = self.path.rsplit('/', 1)[-1]
                 body = cls.cases.get(case, '<p>Not found</p>').encode()
-                self.send_response(200)
+                self.send_response(503 if case == "http-failure" else 200)
                 self.send_header('Content-Type', 'text/html; charset=utf-8')
                 self.send_header('Content-Length', str(len(body)))
                 self.end_headers()
@@ -204,6 +204,37 @@ class BrowserParityTests(unittest.TestCase):
         self.assertIn('Timeout', self.run_case('no-result')[0])
         self.assertEqual(self.clicked['no-result'], 1)
         self.assertEqual(values(self.metrics.path)['netflix_workflow_last_success'], 0)
+
+    def test_timeout_diagnostics_report_phase_without_page_secrets(self):
+        self.cases['private-no-result'] = button('private-no-result', None) + '<h1>private-user private-password https://private.invalid/token</h1><script>setTimeout(()=>{throw new Error("private-password https://private.invalid/token")},0)</script><script>fetch("/http-failure");fetch("http://127.0.0.1:1/private-password-token").catch(()=>{})</script>'
+        with self.assertLogs(application.logger, level='INFO') as captured:
+            self.assertIn('Timeout', self.run_case('private-no-result')[0])
+        timeout = next(record for record in captured.records if record.msg == 'Timeout waiting for Netflix confirmation')
+        self.assertEqual(timeout.phase, 'confirmation_result')
+        self.assertTrue(timeout.click_completed)
+        self.assertEqual(timeout.browser_state['ready_state'], 'complete')
+        self.assertTrue(timeout.browser_state['household_present'])
+        self.assertFalse(timeout.browser_state['react_click_handler'])
+        self.assertEqual(timeout.http_errors, 1)
+        events = [record for record in captured.records if record.msg == 'Netflix browser trace']
+        self.assertEqual(len({record.run_id for record in events}), 1)
+        self.assertEqual(events[0].event, 'started')
+        self.assertEqual(events[-1].event, 'finished')
+        self.assertEqual(events[-1].outcome, 'timeout')
+        self.assertTrue(any(record.event == 'javascript_error' for record in events))
+        failure = next(record for record in events if record.event == 'request_failed')
+        self.assertFalse(failure.same_origin)
+        self.assertEqual(failure.method, 'GET')
+        self.assertTrue(failure.error_code.startswith('net::ERR_'))
+        http_error = next(record for record in events if record.event == 'http_error')
+        self.assertEqual(http_error.status, 503)
+        self.assertTrue(http_error.same_origin)
+        elapsed = [record.elapsed_seconds for record in events]
+        self.assertEqual(elapsed, sorted(elapsed))
+        self.assertEqual(self.clicked['private-no-result'], 1)
+        exported = "\n".join(application.logger.handlers[0].formatter.format(record) for record in captured.records)
+        for secret in ('private-user', 'private-password', 'https://', 'token'):
+            self.assertNotIn(secret, exported)
 
     def test_rejected_password_login_never_reports_success(self):
         self.assertEqual(self.run_case('rejected')[0], 'Netflix login failed')

@@ -1,6 +1,8 @@
 """Module providing custom JSON logging functionality"""
 import json
 import logging
+import os
+from logging.handlers import RotatingFileHandler
 import sys
 import traceback
 from datetime import datetime
@@ -76,3 +78,22 @@ def setup_logger(logger_name="netflixwatcher"):
     logger.setLevel(logging.INFO)
 
     return logger
+
+class PrivateRotatingFileHandler(RotatingFileHandler):
+    """Keep each new trace segment private, including after rotation."""
+
+    def _open(self):
+        return open(self.baseFilename, self.mode, encoding=self.encoding,
+                    opener=lambda path, flags: os.open(path, flags, 0o600))
+
+
+def setup_browser_trace(logger, path):
+    """Persist only structured run events; bound disk use to four 1 MiB files."""
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handler = PrivateRotatingFileHandler(path, maxBytes=1024 * 1024, backupCount=3, encoding="utf-8", delay=True)
+        handler.setFormatter(CustomJsonFormatter())
+        handler.addFilter(lambda record: hasattr(record, "run_id"))
+        logger.addHandler(handler)
+    except OSError:
+        logger.warning("Browser trace file unavailable; console tracing remains active")
