@@ -19,6 +19,7 @@ jobs:
       with:
         python-version: "3.12"
     - run: pip install -r app/requirements.txt
+    - run: python -m playwright install --with-deps --no-shell chromium
     - run: python -m unittest discover -s tests
     - run: |
         install -m 600 /dev/null .env

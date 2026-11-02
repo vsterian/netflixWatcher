@@ -1,16 +1,9 @@
-FROM debian:latest
+FROM python:3.13-slim-bookworm
 
-RUN apt-get update && apt-get install -y curl xvfb chromium chromium-driver
-
-RUN apt-get update && apt-get install -y \
-    python3 python3-pip curl unzip
-
+ENV PYTHONUNBUFFERED=1 PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
 WORKDIR /app
-
+COPY app/requirements.txt /app/app/requirements.txt
+RUN pip install --no-cache-dir -r /app/app/requirements.txt && \
+    python -m playwright install --with-deps --no-shell chromium
 COPY . /app/
-
-RUN pip3 install --break-system-packages -r /app/app/requirements.txt
-
-ENV PYTHONUNBUFFERED=1
-
 CMD ["python3", "/app/app/application.py"]

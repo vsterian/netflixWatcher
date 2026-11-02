@@ -17,3 +17,15 @@ removal until the ephemeral node expires.
 
 Deployments share a Pi-side `flock` across repositories to prevent concurrent
 Docker builds exhausting the Pi. Jobs wait up to 30 minutes for the lock.
+
+### Browser runtime
+
+Playwright runs its matching bundled Chromium in headless mode. Install
+`app/requirements.txt`, then run `python -m playwright install --with-deps --no-shell chromium`
+for local execution and real-browser tests. Docker installs both automatically.
+One in-memory browser/context/page is reused; cookies are not exported to disk.
+Password login, authenticated Household controls and terminal pages are supported;
+email-code-only sign-in is rejected without requesting a code. Confirmation clicks once.
+
+Browser health uses `netflix_browser_*` metrics. Historical `netflix_selenium_*`
+series remain in InfluxDB; update consumers to the new browser metric names.

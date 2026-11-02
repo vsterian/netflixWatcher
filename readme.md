@@ -1,7 +1,7 @@
 # Netflix Household Update Confirmation
 
 ## Description
-This module provides confirmation for Netflix Household updates by fetching relevant emails from Gmail and processing them to extract necessary information. It utilizes Selenium for web automation to handle confirmation tasks.
+This module provides confirmation for Netflix Household updates by fetching relevant emails from Gmail and processing them to extract necessary information. It utilizes Playwright for web automation to handle confirmation tasks.
 
 ## Setup
 
@@ -9,7 +9,8 @@ This module provides confirmation for Netflix Household updates by fetching rele
 
 1. **Dependencies**: Ensure you have Python installed on your system. Additionally, install the required Python packages using `pip`:
 ```bash
-pip install imaplib email selenium
+pip install -r app/requirements.txt
+python -m playwright install --with-deps --no-shell chromium
 ```
 2. **Chrome WebDriver**: Download the Chrome WebDriver compatible with your Chrome browser version and place it in the project directory.
 3. **Gmail Credentials** and **Netflix Credentials**: Create a `.env` file in the root of your project with the following format:
@@ -67,7 +68,7 @@ docker-compose up -d
 
 1. The script connects to Gmail every 5 seconds to fetch unread emails.
 2. If an unread email from Netflix is found, it extracts the body and processes it to confirm the Netflix Household update.
-3. The confirmation process is automated using Selenium.
+3. The confirmation process is automated using Playwright.
 4. If any errors occur during the process, they are logged in the console.
 
 ## Error Handling
@@ -81,7 +82,7 @@ Worker atomically publishes Prometheus text metrics to
 `/var/lib/rpi-observability/netflix-watcher/netflix-watcher.prom`. Scheduler
 publishes separate runtime and restart-attempt state to
 `netflix-watcher-scheduler.prom`. Metrics cover process and polling heartbeat,
-successful IMAP access, pending matching messages, Selenium startup, workflow
+successful IMAP access, pending matching messages, Playwright startup, workflow
 stage and result, and scheduler state. Metrics contain no email address, subject,
 confirmation URL, credential, or other personal-data label.
 
@@ -94,7 +95,7 @@ label.
 
 Successful IMAP polls with zero matching messages represent healthy idle state.
 No email is not a failure. Workflow stage values are `0` idle, `1` polling,
-`2` Selenium startup, `3` login, `4` confirmation, `5` success, and `6` failure.
+`2` Playwright startup, `3` login, `4` confirmation, `5` success, and `6` failure.
 
 Observability is part of feature definition of done. Any new business workflow,
 dependency, schedule, retry policy, or failure mode must update emitted metrics,

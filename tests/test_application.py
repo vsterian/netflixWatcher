@@ -3,10 +3,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
-from urllib3.exceptions import MaxRetryError
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
-
 import application
 from metrics import Metrics
 from test_metrics import values
@@ -33,120 +31,12 @@ class MatchingMailbox(EmptyMailbox):
         self.stored = (message_ids, flags)
 
 
-class ImmediateWait:
-    def __init__(self, driver):
-        self.driver = driver
-
-    def until(self, condition):
-        result = condition(self.driver)
-        if not result:
-            raise application.TimeoutException()
-        return result
-
-
-class ApplicationMetricsTest(unittest.TestCase):
+class MailboxTests(unittest.TestCase):
     def setUp(self):
-        application._browser = None
+        application._browser = application._page = application._playwright = None
 
     def tearDown(self):
-        application._browser = None
-
-    def test_delayed_netflix_login_form_gets_credentials(self):
-        email_field = Mock()
-        password_field = Mock()
-        driver = Mock()
-        driver.find_element.side_effect = [
-            application.NoSuchElementException(),
-            application.NoSuchElementException(),
-            application.NoSuchElementException(),
-            email_field,
-        ]
-        driver.find_elements.side_effect = [[email_field], []]
-
-        with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
-            application, "NETFLIX_PASSWORD", "configured"
-        ), patch.object(application, "WebDriverWait") as wait:
-            wait.return_value.until.side_effect = [True, password_field]
-            self.assertTrue(application.login_to_netflix(driver))
-
-        self.assertEqual(wait.call_count, 2)
-        email_field.send_keys.assert_called_once_with("configured")
-        password_field.send_keys.assert_any_call("configured")
-        password_field.send_keys.assert_any_call(application.Keys.RETURN)
-
-    def test_login_toggle_waits_for_password_form(self):
-        toggle, email_field, password_field = Mock(), Mock(), Mock()
-        driver = Mock()
-        driver.find_element.return_value = toggle
-        driver.find_elements.side_effect = [[], [], [toggle], [password_field]]
-        with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
-            application, "NETFLIX_PASSWORD", "configured"
-        ), patch.object(application, "WebDriverWait") as wait:
-            wait.return_value.until.side_effect = [True, [email_field]]
-            self.assertTrue(application.login_to_netflix(driver))
-        toggle.click.assert_called_once_with()
-        email_field.send_keys.assert_called_once_with("configured")
-        password_field.send_keys.assert_any_call("configured")
-
-    def test_email_code_sign_in_fails_without_requesting_code(self):
-        email_field, hidden_password, continue_button = Mock(), Mock(), Mock()
-        hidden_password.is_displayed.return_value = False
-        driver = Mock()
-        driver.find_elements.side_effect = [[email_field], [hidden_password], [continue_button]]
-        with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
-            application, "NETFLIX_PASSWORD", "configured"
-        ), patch.object(application, "WebDriverWait") as wait:
-            wait.return_value.until.return_value = True
-            self.assertFalse(application.login_to_netflix(driver))
-        email_field.send_keys.assert_not_called()
-        continue_button.click.assert_not_called()
-
-    def test_authenticated_page_requires_household_control(self):
-        household_button = Mock()
-        driver = Mock()
-        driver.find_element.side_effect = [
-            application.NoSuchElementException(),
-            application.NoSuchElementException(),
-            household_button,
-        ]
-        driver.find_elements.return_value = []
-        with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
-            application, "NETFLIX_PASSWORD", "configured"
-        ), patch.object(application, "WebDriverWait") as wait:
-            wait.return_value.until.side_effect = lambda condition: condition(driver)
-            self.assertTrue(application.login_to_netflix(driver))
-        self.assertEqual(driver.find_element.call_count, 3)
-
-    def test_login_fails_when_controls_do_not_appear(self):
-        driver = Mock()
-        with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
-            application, "NETFLIX_PASSWORD", "configured"
-        ), patch.object(application, "WebDriverWait") as wait:
-            wait.return_value.until.side_effect = application.TimeoutException()
-            self.assertFalse(application.login_to_netflix(driver))
-
-        hidden = Mock()
-        hidden.is_displayed.return_value = False
-        driver.find_element.return_value = hidden
-        with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
-            application, "NETFLIX_PASSWORD", "configured"
-        ), patch.object(application, "WebDriverWait", side_effect=lambda driver, timeout: ImmediateWait(driver)):
-            self.assertFalse(application.login_to_netflix(driver))
-
-    def test_login_fails_without_credentials(self):
-        with patch.object(application, "NETFLIX_LOGIN", None), patch.object(
-            application, "NETFLIX_PASSWORD", None
-        ):
-            self.assertFalse(application.login_to_netflix(Mock()))
-
-    def test_login_rejects_visible_form_without_password_field(self):
-        driver = Mock()
-        driver.find_elements.side_effect = [[Mock()], []]
-        with patch.object(application, "NETFLIX_LOGIN", "configured"), patch.object(
-            application, "NETFLIX_PASSWORD", "configured"
-        ), patch.object(application, "WebDriverWait") as wait:
-            wait.return_value.until.side_effect = [True, application.TimeoutException()]
-            self.assertFalse(application.login_to_netflix(driver))
+        application._browser = application._page = application._playwright = None
 
     def test_link_extraction_and_missing_environment(self):
         self.assertEqual(application.extract_links("no link"), [])
@@ -164,120 +54,6 @@ class ApplicationMetricsTest(unittest.TestCase):
                             EMAIL_LOGIN="x", EMAIL_PASSWORD="x", NETFLIX_EMAIL_SENDER="x"):
             self.assertEqual(application.get_missing_env_vars(), [])
 
-    def test_empty_link_and_unmatched_link_fail_workflow(self):
-        with TemporaryDirectory() as directory:
-            replacement = Metrics(Path(directory) / "netflix.prom")
-            with patch.object(application, "metrics", replacement):
-                self.assertEqual(application.open_link_with_selenium(""), ("Empty email body", None))
-                self.assertEqual(application.open_link_with_selenium("https://example.invalid/"),
-                                 ("Netflix update link not found", None))
-            published = values(replacement.path)
-            self.assertEqual(published["netflix_workflow_failure_total"], 2)
-
-    def test_successful_household_confirmation(self):
-        button = Mock()
-        button.is_displayed.return_value = True
-        button.is_enabled.return_value = True
-        confirmed = Mock()
-        confirmed.is_displayed.return_value = True
-        driver = Mock(page_source="updated")
-
-        def find_element(_by, selector):
-            return button if "set-primary-location-action" in selector else confirmed
-
-        driver.find_element.side_effect = find_element
-        with TemporaryDirectory() as directory:
-            replacement = Metrics(Path(directory) / "netflix.prom")
-            with patch.object(application, "metrics", replacement), patch.object(
-                application.webdriver, "Chrome", return_value=driver
-            ) as chrome, patch.object(application, "login_to_netflix", return_value=True), patch.object(
-                application, "WebDriverWait", side_effect=lambda current_driver, timeout: ImmediateWait(current_driver)
-            ), patch.object(application.time, "sleep") as sleep:
-                self.assertEqual(
-                    application.open_link_with_selenium(
-                        "https://example.invalid/unrelated https://example.invalid/update-primary-location/token"
-                    ),
-                    ("Success", "updated"),
-                )
-                self.assertEqual(application.open_link_with_selenium(
-                    "https://example.invalid/update-primary-location/next"
-                ), ("Success", "updated"))
-                chrome.assert_called_once()
-                sleep.assert_not_called()
-            self.assertEqual(values(replacement.path)["netflix_workflow_success_total"], 2)
-            self.assertEqual(button.click.call_count, 2)
-            driver.quit.assert_not_called()
-            driver.get.assert_any_call("about:blank")
-
-    def test_stale_link_and_confirmation_timeout(self):
-        stale = Mock()
-        stale_driver = Mock(page_source="This link is no longer valid")
-        stale_driver.find_element.side_effect = [application.NoSuchElementException(), stale]
-        disabled_button = Mock()
-        disabled_button.is_displayed.return_value = True
-        disabled_button.is_enabled.return_value = False
-        timeout_driver = Mock(page_source="sign in")
-
-        def timeout_find_element(_by, selector):
-            if "set-primary-location-action" in selector:
-                return disabled_button
-            raise application.NoSuchElementException()
-
-        timeout_driver.find_element.side_effect = timeout_find_element
-        with TemporaryDirectory() as directory:
-            replacement = Metrics(Path(directory) / "netflix.prom")
-            with patch.object(application, "metrics", replacement), patch.object(
-                application.webdriver, "Chrome", side_effect=[stale_driver, timeout_driver]
-            ), patch.object(application, "login_to_netflix", return_value=True), patch.object(
-                application, "WebDriverWait", side_effect=lambda driver, timeout: ImmediateWait(driver)
-            ):
-                result, _ = application.open_link_with_selenium(
-                    "https://example.invalid/update-primary-location/token"
-                )
-                self.assertEqual(result, "This link is no longer valid")
-                result, page = application.open_link_with_selenium(
-                    "https://example.invalid/update-primary-location/token"
-                )
-                self.assertEqual(result, "Timeout waiting for Netflix confirmation")
-                self.assertEqual(page, "sign in")
-            self.assertEqual(values(replacement.path)["netflix_workflow_failure_total"], 2)
-            stale_driver.quit.assert_called_once_with()
-            timeout_driver.quit.assert_called_once_with()
-
-    def test_link_becomes_invalid_after_one_click(self):
-        button = Mock()
-        button.is_displayed.return_value = True
-        button.is_enabled.return_value = True
-        driver = Mock(page_source="pending")
-        driver.find_element.return_value = button
-        button.click.side_effect = lambda: setattr(driver, "page_source", "This link is no longer valid")
-        with TemporaryDirectory() as directory:
-            replacement = Metrics(Path(directory) / "netflix.prom")
-            with patch.object(application, "metrics", replacement), patch.object(
-                application.webdriver, "Chrome", return_value=driver
-            ), patch.object(application, "login_to_netflix", return_value=True), patch.object(
-                application, "WebDriverWait", side_effect=lambda current_driver, timeout: ImmediateWait(current_driver)
-            ):
-                result, _ = application.open_link_with_selenium(
-                    "https://example.invalid/update-primary-location/token"
-                )
-            self.assertEqual(result, "This link is no longer valid")
-            self.assertEqual(values(replacement.path)["netflix_workflow_failure_total"], 1)
-            button.click.assert_called_once_with()
-
-    def test_browser_flow_stops_when_login_is_rejected(self):
-        driver = Mock()
-        with TemporaryDirectory() as directory:
-            replacement = Metrics(Path(directory) / "netflix.prom")
-            with patch.object(application, "metrics", replacement), patch.object(
-                application.webdriver, "Chrome", return_value=driver
-            ), patch.object(application, "login_to_netflix", return_value=False):
-                result, _ = application.open_link_with_selenium(
-                    "https://example.invalid/update-primary-location/token"
-                )
-            self.assertIn("Netflix login failed", result)
-            driver.quit.assert_called_once_with()
-            self.assertEqual(values(replacement.path)["netflix_workflow_failure_total"], 1)
 
     def test_empty_mailbox_is_healthy_idle(self):
         with TemporaryDirectory() as directory:
@@ -289,76 +65,13 @@ class ApplicationMetricsTest(unittest.TestCase):
             self.assertEqual(published["netflix_matching_emails_pending"], 0)
             self.assertEqual(published["netflix_workflow_stage"], 0)
 
-    def test_selenium_start_failure_is_exported_without_url(self):
-        with TemporaryDirectory() as directory:
-            path = Path(directory) / "netflix.prom"
-            replacement = Metrics(path)
-            with patch.object(application, "metrics", replacement), patch.object(
-                application.webdriver,
-                "Chrome",
-                side_effect=RuntimeError("driver unavailable"),
-            ), patch.object(application, "Service"):
-                result, _ = application.open_link_with_selenium(
-                    "https://example.invalid/update-primary-location/private"
-                )
-
-            published = values(path)
-            self.assertIn("error", result.lower())
-            self.assertEqual(published["netflix_selenium_available"], 0)
-            self.assertEqual(published["netflix_selenium_start_failure_total"], 1)
-            self.assertEqual(published["netflix_workflow_failure_total"], 1)
-            self.assertNotIn("example.invalid", path.read_text(encoding="utf-8"))
-
-    def test_transient_browser_start_failure_retries_and_cleans_service(self):
-        driver = Mock()
-        for failures in (1, 2):
-            with self.subTest(failures=failures), TemporaryDirectory() as directory:
-                replacement = Metrics(Path(directory) / "netflix.prom")
-                services = [Mock(), Mock()]
-                outcomes = [application.WebDriverException("service unavailable")] * failures
-                if failures == 1:
-                    outcomes.append(driver)
-                with patch.object(application, "metrics", replacement), patch.object(
-                    application, "Service", side_effect=services
-                ), patch.object(application.webdriver, "Chrome", side_effect=outcomes) as chrome, patch.object(
-                    application, "login_to_netflix", return_value=False
-                ), patch.object(application.time, "sleep"):
-                    application.open_link_with_selenium(
-                        "https://example.invalid/update-primary-location/private"
-                    )
-                self.assertEqual(chrome.call_count, 2)
-                services[0].stop.assert_called_once_with()
-                published = values(replacement.path)
-                if failures == 1:
-                    services[1].stop.assert_not_called()
-                    driver.quit.assert_called_once_with()
-                    self.assertEqual(published["netflix_selenium_start_success_total"], 1)
-                else:
-                    services[1].stop.assert_called_once_with()
-                    self.assertEqual(published["netflix_selenium_start_failure_total"], 1)
-
-    def test_browser_exception_is_reported_and_driver_closed(self):
-        driver = Mock()
-        driver.get.side_effect = RuntimeError("controlled browser failure")
-        with TemporaryDirectory() as directory:
-            replacement = Metrics(Path(directory) / "netflix.prom")
-            with patch.object(application, "metrics", replacement), patch.object(
-                application.webdriver, "Chrome", return_value=driver
-            ):
-                result, page = application.open_link_with_selenium(
-                    "https://example.invalid/update-primary-location/private"
-                )
-            self.assertIn("controlled browser failure", result)
-            self.assertEqual(page, driver.page_source)
-            driver.quit.assert_called_once_with()
-            self.assertEqual(values(replacement.path)["netflix_workflow_failure_total"], 1)
 
     def test_matching_email_count_and_pending_state(self):
         with TemporaryDirectory() as directory:
             replacement = Metrics(Path(directory) / "netflix.prom")
             mailbox = MatchingMailbox()
             with patch.object(application, "metrics", replacement), patch.object(
-                application, "open_link_with_selenium", return_value=("Success", None)
+                application, "open_link_with_browser", return_value=("Success", None)
             ):
                 application.fetch_last_unseen_email(mailbox)
             published = values(replacement.path)
@@ -366,15 +79,17 @@ class ApplicationMetricsTest(unittest.TestCase):
             self.assertEqual(published["netflix_matching_emails_pending"], 0)
             self.assertEqual(mailbox.stored, ([1], [b'\\Seen']))
 
+
     def test_mail_body_failure_clears_pending_state(self):
         with TemporaryDirectory() as directory:
             replacement = Metrics(Path(directory) / "netflix.prom")
             with patch.object(application, "metrics", replacement), patch.object(
-                application, "open_link_with_selenium", side_effect=RuntimeError("failure")
+                application, "open_link_with_browser", side_effect=RuntimeError("failure")
             ):
                 with self.assertRaises(RuntimeError):
                     application.fetch_last_unseen_email(MatchingMailbox())
             self.assertEqual(values(replacement.path)["netflix_matching_emails_pending"], 0)
+
 
     def test_idle_reuses_connection_and_reconciles_after_notification_and_timeout(self):
         mailbox = Mock()
@@ -385,7 +100,7 @@ class ApplicationMetricsTest(unittest.TestCase):
                 application, "IMAPClient", return_value=mailbox
             ) as connect, patch.object(application, "get_missing_env_vars", return_value=[]), patch.object(
                 application, "fetch_last_unseen_email"
-            ) as scan, patch.object(application, "get_browser") as warmup:
+            ) as scan, patch.object(application, "get_page") as warmup:
                 application._browser = Mock()
                 with self.assertRaises(SystemExit):
                     application.watch_mailbox()
@@ -399,6 +114,7 @@ class ApplicationMetricsTest(unittest.TestCase):
             published = values(replacement.path)
             self.assertEqual(published["netflix_imap_connected"], 0)
             self.assertEqual(published["netflix_imap_idle_active"], 0)
+
 
     def test_connection_and_idle_failure_reconnect(self):
         for failure_at in ('connect', 'idle'):
@@ -414,7 +130,7 @@ class ApplicationMetricsTest(unittest.TestCase):
                     application, "IMAPClient", side_effect=outcomes
                 ) as connect, patch.object(application, "get_missing_env_vars", return_value=[]), patch.object(
                     application, "fetch_last_unseen_email"
-                ), patch.object(application.time, "sleep") as sleep:
+                ), patch.object(application, "get_page"), patch.object(application.time, "sleep") as sleep:
                     application._browser = Mock()
                     with self.assertRaises(SystemExit):
                         application.watch_mailbox()
@@ -424,6 +140,7 @@ class ApplicationMetricsTest(unittest.TestCase):
                 if failure_at == 'idle':
                     mailbox.logout.assert_called_once()
                     mailbox.idle_done.assert_called_once()
+
 
     def test_missing_credentials_do_not_connect(self):
         with TemporaryDirectory() as directory:
@@ -438,22 +155,6 @@ class ApplicationMetricsTest(unittest.TestCase):
             connect.assert_not_called()
             self.assertEqual(values(replacement.path)["netflix_imap_poll_failure_total"], 1)
 
-    def test_warm_browser_reused_and_eager_without_sleep(self):
-        driver = Mock()
-        with TemporaryDirectory() as directory:
-            replacement = Metrics(Path(directory) / "netflix.prom")
-            with patch.object(application, "metrics", replacement), patch.object(
-                application.webdriver, "Chrome", return_value=driver
-            ) as chrome, patch.object(application.time, "sleep") as sleep:
-                self.assertIs(application.get_browser(), driver)
-                self.assertIs(application.get_browser(), driver)
-                chrome.assert_called_once()
-                self.assertEqual(chrome.call_args.kwargs['options'].page_load_strategy, 'eager')
-                sleep.assert_not_called()
-                application.close_browser()
-            driver.quit.assert_called_once()
-            self.assertIsNone(application._browser)
-            self.assertEqual(values(replacement.path)["netflix_browser_warm"], 0)
 
     def test_mailbox_without_idle_rejected_and_closed(self):
         mailbox = Mock()
@@ -471,6 +172,7 @@ class ApplicationMetricsTest(unittest.TestCase):
             mailbox.idle.assert_not_called()
             self.assertEqual(values(replacement.path)["netflix_imap_connected"], 0)
 
+
     def test_login_select_scan_and_idle_done_errors_close_session(self):
         for method in ('login', 'select_folder', 'search', 'idle_done'):
             with self.subTest(method=method), TemporaryDirectory() as directory:
@@ -482,7 +184,7 @@ class ApplicationMetricsTest(unittest.TestCase):
                     application, "get_missing_env_vars", return_value=[]
                 ), patch.object(application, "IMAPClient", return_value=mailbox), patch.object(
                     application.time, "sleep", side_effect=SystemExit()
-                ), patch.object(application, "get_browser"):
+                ), patch.object(application, "get_page"):
                     with self.assertRaises(SystemExit):
                         application.watch_mailbox()
                 mailbox.logout.assert_called_once()
@@ -490,6 +192,7 @@ class ApplicationMetricsTest(unittest.TestCase):
                 self.assertEqual(published["netflix_imap_connected"], 0)
                 self.assertEqual(published["netflix_imap_idle_active"], 0)
                 self.assertEqual(published["netflix_imap_poll_failure_total"], 1)
+
 
     def test_missing_message_body_fails_without_marking_seen(self):
         mailbox = Mock()
@@ -501,17 +204,19 @@ class ApplicationMetricsTest(unittest.TestCase):
                     application.fetch_last_unseen_email(mailbox)
         mailbox.add_flags.assert_not_called()
 
+
     def test_unrelated_subject_is_not_marked_seen_or_opened(self):
         mailbox = Mock()
         mailbox.search.return_value = [1]
         mailbox.fetch.return_value = {1: {b'BODY[]': b'Subject: Other Netflix notice\r\n\r\nbody'}}
         with TemporaryDirectory() as directory:
             with patch.object(application, "metrics", Metrics(Path(directory) / "netflix.prom")), patch.object(
-                application, "open_link_with_selenium"
+                application, "open_link_with_browser"
             ) as workflow:
                 application.fetch_last_unseen_email(mailbox)
         mailbox.add_flags.assert_not_called()
         workflow.assert_not_called()
+
 
     def test_multiple_messages_use_stable_uids_and_peek(self):
         mailbox = Mock()
@@ -521,7 +226,7 @@ class ApplicationMetricsTest(unittest.TestCase):
         with TemporaryDirectory() as directory:
             replacement = Metrics(Path(directory) / "netflix.prom")
             with patch.object(application, "metrics", replacement), patch.object(
-                application, "open_link_with_selenium", return_value=("Success", None)
+                application, "open_link_with_browser", return_value=("Success", None)
             ) as workflow:
                 application.fetch_last_unseen_email(mailbox)
             self.assertEqual(workflow.call_count, 2)
@@ -529,55 +234,172 @@ class ApplicationMetricsTest(unittest.TestCase):
             self.assertEqual(mailbox.fetch.call_args_list[1].args, ([22], ['BODY.PEEK[]']))
             self.assertEqual(values(replacement.path)["netflix_matching_emails_total"], 2)
 
-    def test_browser_quit_failure_still_clears_cache(self):
-        driver = Mock()
-        driver.quit.side_effect = application.WebDriverException("already dead")
-        application._browser = driver
-        with TemporaryDirectory() as directory:
-            replacement = Metrics(Path(directory) / "netflix.prom")
-            with patch.object(application, "metrics", replacement):
-                application.close_browser()
-            self.assertIsNone(application._browser)
-            self.assertEqual(values(replacement.path)["netflix_browser_warm"], 0)
 
     def test_stop_signal_uses_graceful_shutdown(self):
         with self.assertRaises(SystemExit):
             application.stop_watcher(None, None)
 
-    def test_dead_warm_browser_rebuilt_before_navigation(self):
-        failures = [application.WebDriverException("dead"), ConnectionError("refused"),
-                    MaxRetryError(None, '/session')]
-        for failure in failures:
-            with self.subTest(error=type(failure).__name__):
-                old, fresh = Mock(), Mock()
-                def dead(_self):
-                    raise failure
-                type(old).window_handles = property(dead)
-                application._browser = old
-                with TemporaryDirectory() as directory:
-                    with patch.object(application, "metrics", Metrics(Path(directory) / "netflix.prom")), patch.object(
-                        application.webdriver, "Chrome", return_value=fresh
-                    ):
-                        self.assertIs(application.get_browser(), fresh)
-                old.quit.assert_called_once()
 
-    def test_dead_browser_does_not_escape_error_handling(self):
-        driver = Mock()
-        driver.get.side_effect = application.WebDriverException("dead")
-        type(driver).page_source = property(lambda _self: (_ for _ in ()).throw(application.WebDriverException("dead")))
-        with TemporaryDirectory() as directory:
-            replacement = Metrics(Path(directory) / "netflix.prom")
-            with patch.object(application, "metrics", replacement), patch.object(
-                application.webdriver, "Chrome", return_value=driver
-            ):
-                result, page = application.open_link_with_selenium(
-                    "https://example.invalid/update-primary-location/private"
-                )
-            self.assertIn("error", result)
-            self.assertIsNone(page)
-            self.assertIsNone(application._browser)
-            driver.quit.assert_called_once()
+class BrowserLifecycleTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = TemporaryDirectory()
+        self.metrics = Metrics(Path(self.directory.name) / "metrics.prom")
+        self.metrics_patch = patch.object(application, "metrics", self.metrics)
+        self.metrics_patch.start()
+        self.factory_patch = patch.object(application, "sync_playwright")
+        self.factory = self.factory_patch.start()
+        self.runtime = self.factory.return_value.start.return_value
+        self.browser = self.runtime.chromium.launch.return_value
+        self.page = self.browser.new_page.return_value
+        self.browser.is_connected.return_value = True
+        self.page.is_closed.return_value = False
+        application._browser = application._page = application._playwright = None
+
+    def tearDown(self):
+        application.close_browser()
+        self.factory_patch.stop()
+        self.metrics_patch.stop()
+        self.directory.cleanup()
+
+    def test_launch_and_metrics(self):
+        self.assertIs(application.get_page(), self.page)
+        launch = self.runtime.chromium.launch.call_args.kwargs
+        self.assertEqual(launch['channel'], 'chromium')
+        self.assertTrue(launch['headless'])
+        self.assertEqual(launch['timeout'], 30000)
+        self.page.set_default_navigation_timeout.assert_called_once_with(30000)
+        published = values(self.metrics.path)
+        self.assertEqual(published['netflix_browser_available'], 1)
+        self.assertEqual(published['netflix_browser_warm'], 1)
+        self.assertEqual(published['netflix_browser_start_success_total'], 1)
+        self.assertFalse(any('selenium' in name for name in published))
+
+    def test_warm_page_reuse_probes_transport(self):
+        self.assertIs(application.get_page(), application.get_page())
+        self.runtime.chromium.launch.assert_called_once()
+        self.page.evaluate.assert_called_once_with('1')
+
+    def test_closed_page_disconnected_browser_and_transport_error_rebuild(self):
+        for failure in ('closed', 'disconnected', 'transport'):
+            with self.subTest(failure=failure):
+                application.close_browser()
+                self.page.is_closed.return_value = False
+                self.browser.is_connected.return_value = True
+                self.page.evaluate.side_effect = None
+                application.get_page()
+                starts = self.runtime.chromium.launch.call_count
+                if failure == 'closed': self.page.is_closed.return_value = True
+                if failure == 'disconnected': self.browser.is_connected.return_value = False
+                if failure == 'transport': self.page.evaluate.side_effect = application.BrowserError('dead')
+                application.get_page()
+                self.assertEqual(self.runtime.chromium.launch.call_count, starts + 1)
+
+    def test_transient_launch_failure_retries_and_cleans_runtime(self):
+        self.runtime.chromium.launch.side_effect = [application.BrowserError('launch'), self.browser]
+        with patch.object(application.time, 'sleep') as sleep:
+            self.assertIs(application.get_page(), self.page)
+        sleep.assert_called_once_with(2)
+        self.runtime.stop.assert_called_once()
+        self.assertEqual(values(self.metrics.path)['netflix_browser_start_success_total'], 1)
+
+    def test_exhausted_launch_failure_is_counted_once(self):
+        self.runtime.chromium.launch.side_effect = application.BrowserError('launch')
+        with patch.object(application.time, 'sleep'), self.assertRaises(application.BrowserError):
+            application.get_page()
+        self.assertEqual(self.runtime.chromium.launch.call_count, 2)
+        published = values(self.metrics.path)
+        self.assertEqual(published['netflix_browser_start_failure_total'], 1)
+        self.assertEqual(published['netflix_browser_available'], 0)
+        self.assertEqual(published['netflix_browser_warm'], 0)
+        self.assertIsNone(application._playwright)
+
+    def test_page_creation_failure_closes_partial_browser(self):
+        self.browser.new_page.side_effect = [application.BrowserError('page'), self.page]
+        with patch.object(application.time, 'sleep'):
+            self.assertIs(application.get_page(), self.page)
+        self.browser.close.assert_called_once()
+        self.runtime.stop.assert_called_once()
+
+    def test_unexpected_launch_error_not_retried(self):
+        self.runtime.chromium.launch.side_effect = ValueError('configuration')
+        with self.assertRaises(ValueError): application.get_page()
+        self.runtime.chromium.launch.assert_called_once()
+        self.assertEqual(values(self.metrics.path)['netflix_browser_start_failure_total'], 1)
+
+    def test_runtime_start_failure_can_retry(self):
+        self.factory.return_value.start.side_effect = [application.BrowserError('transport'), self.runtime]
+        with patch.object(application.time, 'sleep'):
+            self.assertIs(application.get_page(), self.page)
+        self.assertEqual(self.factory.return_value.start.call_count, 2)
+
+    def test_cleanup_closes_transport_even_when_browser_close_fails(self):
+        application.get_page()
+        self.browser.close.side_effect = application.BrowserError('closed')
+        application.close_browser()
+        self.runtime.stop.assert_called_once()
+        self.assertIsNone(application._page)
+        self.assertIsNone(application._browser)
+        self.assertIsNone(application._playwright)
+
+    def test_cleanup_is_idempotent_and_tolerates_stopped_runtime(self):
+        application.get_page()
+        self.runtime.stop.side_effect = application.BrowserError('stopped')
+        application.close_browser()
+        application.close_browser()
+        self.runtime.stop.assert_called_once()
+
+    def test_error_call_logs_do_not_expose_urls_or_fill_values(self):
+        secret = 'private-password-and-token'
+        self.page.goto.side_effect = application.BrowserError('fill("' + secret + '") https://example.invalid/private')
+        with self.assertLogs(application.logger, level='ERROR') as output:
+            result, html = application.open_link_with_browser('https://example.invalid/update-primary-location/private')
+        self.assertIsNone(html)
+        self.assertNotIn(secret, result + str(output.output))
+        self.assertNotIn('https://', result + str(output.output))
+        self.assertEqual(values(self.metrics.path)['netflix_workflow_failure_total'], 1)
+        self.assertIsNone(application._browser)
+
+    def test_startup_failure_through_workflow_is_exported(self):
+        self.runtime.chromium.launch.side_effect = ValueError('configuration')
+        result, html = application.open_link_with_browser('https://example.invalid/update-primary-location/private')
+        self.assertIn('failed', result)
+        self.assertIsNone(html)
+        published = values(self.metrics.path)
+        self.assertEqual(published['netflix_browser_available'], 0)
+        self.assertEqual(published['netflix_workflow_failure_total'], 1)
+
+    def test_navigation_timeout_is_failure_and_discards_browser(self):
+        self.page.goto.side_effect = application.BrowserTimeout('slow')
+        result, _ = application.open_link_with_browser('https://example.invalid/update-primary-location/private')
+        self.assertIn('Timeout', result)
+        self.assertEqual(values(self.metrics.path)['netflix_workflow_failure_total'], 1)
+        self.browser.close.assert_called_once()
+
+    def test_content_failure_never_double_counts_terminal_outcomes(self):
+        for state in ('login', 'invalid', 'success'):
+            with self.subTest(state=state):
+                application.close_browser()
+                self.page.goto.side_effect = None
+                self.page.content.side_effect = application.BrowserError('closed during snapshot')
+                def locator(selector):
+                    control = Mock()
+                    control.is_visible.return_value = (selector == application.INVALID and state == 'invalid') or (selector == application.SUCCESS and state == 'success')
+                    return control
+                self.page.locator.side_effect = locator
+                before = self.metrics._values['netflix_workflow_failure_total']
+                with patch.object(application, 'login_to_netflix', return_value=state != 'login'):
+                    result, _ = application.open_link_with_browser('https://example.invalid/update-primary-location/private')
+                self.assertIn('failed', result)
+                self.assertEqual(self.metrics._values['netflix_workflow_failure_total'], before + 1)
+                self.assertEqual(self.metrics._values['netflix_workflow_success_total'], 0)
+                self.assertIsNone(application._browser)
+
+    def test_empty_and_unmatched_body_do_not_launch_browser(self):
+        for body, result in (('', 'Empty email body'), ('https://example.invalid/unrelated', 'Netflix update link not found')):
+            self.assertEqual(application.open_link_with_browser(body), (result, None))
+        self.factory.assert_not_called()
+        self.assertEqual(values(self.metrics.path)['netflix_workflow_failure_total'], 2)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
