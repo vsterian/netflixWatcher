@@ -109,8 +109,6 @@ class BrowserParityTests(unittest.TestCase):
         self.metrics = Metrics(Path(self.directory.name) / 'metrics.prom')
         self.stack = ExitStack()
         self.stack.enter_context(patch.object(application, 'metrics', self.metrics))
-        self.stack.enter_context(patch.object(application, 'CONTROL_TIMEOUT_MS', 3000))
-        self.stack.enter_context(patch.object(application, 'BUTTON_TIMEOUT_MS', 2000))
         self.stack.enter_context(patch.object(application, 'NETFLIX_LOGIN', 'fixture-user'))
         self.stack.enter_context(patch.object(application, 'NETFLIX_PASSWORD', 'fixture-password'))
         application.close_browser()
