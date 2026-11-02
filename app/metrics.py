@@ -38,7 +38,7 @@ class Metrics:
     def __init__(self, path: Path | None = None) -> None:
         self.path = path or Path(os.getenv("METRICS_FILE", str(DEFAULT_METRICS_FILE)))
         self._lock = threading.Lock()
-        self._last_poll_publish = 0.0
+        self._last_poll_publish = float("-inf")
         self._values: dict[str, float] = {
             "service_up": 0,
             "netflix_watcher_process_start_timestamp_seconds": time.time(),
@@ -54,6 +54,11 @@ class Metrics:
             "netflix_imap_last_success_timestamp_seconds": 0,
             "netflix_matching_emails_pending": 0,
             "netflix_matching_emails_total": 0,
+            "netflix_imap_connected": 0,
+            "netflix_imap_idle_active": 0,
+            "netflix_browser_warm": 0,
+            "netflix_browser_start_duration_seconds": 0,
+            "netflix_navigation_duration_seconds": 0,
             "netflix_selenium_available": -1,
             "netflix_selenium_start_success_total": 0,
             "netflix_selenium_start_failure_total": 0,
