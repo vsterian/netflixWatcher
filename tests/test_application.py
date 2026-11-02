@@ -277,7 +277,8 @@ class BrowserLifecycleTests(unittest.TestCase):
     def test_warm_page_reuse_probes_transport(self):
         self.assertIs(application.get_page(), application.get_page())
         self.runtime.chromium.launch.assert_called_once()
-        self.page.evaluate.assert_called_once_with('1')
+        self.page.locator.assert_called_once_with('html')
+        self.page.locator.return_value.wait_for.assert_called_once_with(state='attached', timeout=application.CONTROL_TIMEOUT_MS)
 
     def test_closed_page_disconnected_browser_and_transport_error_rebuild(self):
         for failure in ('closed', 'disconnected', 'transport'):
@@ -285,12 +286,12 @@ class BrowserLifecycleTests(unittest.TestCase):
                 application.close_browser()
                 self.page.is_closed.return_value = False
                 self.browser.is_connected.return_value = True
-                self.page.evaluate.side_effect = None
+                self.page.locator.return_value.wait_for.side_effect = None
                 application.get_page()
                 starts = self.runtime.chromium.launch.call_count
                 if failure == 'closed': self.page.is_closed.return_value = True
                 if failure == 'disconnected': self.browser.is_connected.return_value = False
-                if failure == 'transport': self.page.evaluate.side_effect = application.BrowserError('dead')
+                if failure == 'transport': self.page.locator.return_value.wait_for.side_effect = application.BrowserError('dead')
                 application.get_page()
                 self.assertEqual(self.runtime.chromium.launch.call_count, starts + 1)
 

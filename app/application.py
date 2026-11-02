@@ -104,7 +104,7 @@ def get_page():
     if _browser is not None:
         try:
             if _browser.is_connected() and not _page.is_closed():
-                _page.evaluate("1")
+                _page.locator("html").wait_for(state="attached", timeout=CONTROL_TIMEOUT_MS)
                 return _page
         except Exception:
             pass
