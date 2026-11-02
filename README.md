@@ -26,7 +26,7 @@ for local execution and real-browser tests. Docker installs both automatically.
 One in-memory browser/context/page is reused; cookies are not exported to disk.
 Password login, authenticated Household controls and terminal pages are supported;
 email verification challenges before or after password submission stop automation.
-Codes are never read or entered. Confirmation clicks once.
+Verification codes are never extracted or entered. Confirmation clicks once.
 
 Browser health uses `netflix_browser_*` metrics. Historical `netflix_selenium_*`
 series remain in InfluxDB; update consumers to the new browser metric names.
