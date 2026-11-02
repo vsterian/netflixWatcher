@@ -30,7 +30,8 @@ def button(case, outcome=UPDATED, delay=0):
 
 def form(case, delayed=False):
     controls = '<input name="password" type="password"><button type="submit">Sign in</button>'
-    action = "event.preventDefault();fetch('/login/" + case + "',{method:'POST',body:JSON.stringify({user:document.querySelector('[name=userLoginId]').value,password:document.querySelector('[name=password]').value})}).then(r=>{document.body.innerHTML=r.ok?" + json.dumps(button(case)) + ":'<h1>Rejected</h1>';})"
+    authenticated = '<h1>Enter the code we sent to your email</h1>' if case == 'post-login-code' else button(case)
+    action = "event.preventDefault();fetch('/login/" + case + "',{method:'POST',body:JSON.stringify({user:document.querySelector('[name=userLoginId]').value,password:document.querySelector('[name=password]').value})}).then(r=>{document.body.innerHTML=r.ok?" + json.dumps(authenticated) + ":'<h1>Rejected</h1>';})"
     result = '<form onsubmit="' + html.escape(action, quote=True) + '"><input name="userLoginId">' + ('' if delayed else controls) + '</form>'
     if delayed:
         result += '<script>setTimeout(()=>document.querySelector("form").insertAdjacentHTML("beforeend",' + json.dumps(controls) + '),150)</script>'
@@ -59,6 +60,8 @@ class BrowserParityTests(unittest.TestCase):
             'password': form('password'),
             'delayed-password': form('delayed-password', delayed=True),
             'rejected': form('rejected'),
+            'post-login-code': form('post-login-code'),
+            'existing-code': '<h1>Enter the code we sent to your email</h1>',
             'toggle': '<button data-uia="login-toggle-button" onclick="' + html.escape('document.body.innerHTML=' + json.dumps(form('toggle')), quote=True) + '">Use password</button>',
             'missing-password': '<input name="userLoginId">',
         }
@@ -151,13 +154,23 @@ class BrowserParityTests(unittest.TestCase):
         self.assert_success('toggle')
 
     def test_email_code_only_does_not_request_code_or_fill_username(self):
-        for case in ('code-only', 'code-no-password'):
+        for case in ('code-only', 'code-no-password', 'existing-code'):
             with self.subTest(case=case):
                 result, content = self.run_case(case)
                 self.assertEqual(result, 'Netflix login failed')
                 self.assertNotIn('fixture-user', content)
                 self.assertEqual(self.code_requests, 0)
                 self.assertIsNone(application._browser)
+
+    def test_post_password_email_verification_stops_without_requesting_code(self):
+        result, content = self.run_case('post-login-code')
+        self.assertEqual(result, 'Netflix login failed')
+        self.assertIn('Enter the code we sent to your email', content)
+        self.assertEqual(len(self.logins), 1)
+        self.assertEqual(self.code_requests, 0)
+        self.assertEqual(sum(self.clicked.values()), 0)
+        self.assertEqual(values(self.metrics.path)['netflix_workflow_last_success'], 0)
+        self.assertIsNone(application._browser)
 
     def test_missing_password_hidden_controls_and_missing_controls_fail(self):
         for case in ('missing-password', 'hidden-controls', 'no-controls'):
@@ -193,7 +206,7 @@ class BrowserParityTests(unittest.TestCase):
         self.assertEqual(values(self.metrics.path)['netflix_workflow_last_success'], 0)
 
     def test_rejected_password_login_never_reports_success(self):
-        self.assertIn('Timeout', self.run_case('rejected')[0])
+        self.assertEqual(self.run_case('rejected')[0], 'Netflix login failed')
         self.assertEqual(len(self.logins), 1)
         self.assertEqual(sum(self.clicked.values()), 0)
 

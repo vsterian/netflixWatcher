@@ -34,6 +34,7 @@ TOGGLE = 'button[data-uia="login-toggle-button"]'
 HOUSEHOLD = 'button[data-uia="set-primary-location-action"]'
 INVALID = 'h1:text-is("This link is no longer valid")'
 SUCCESS = 'h1:text-is("You’ve updated your Netflix Household")'
+EMAIL_CODE = 'h1:text-is("Enter the code we sent to your email")'
 
 
 def get_missing_env_vars():
@@ -61,9 +62,12 @@ def login_to_netflix(page):
         logger.error("Missing Netflix credentials; cannot perform login")
         return False
     try:
-        page.locator(f'{LOGIN}:visible, {TOGGLE}:visible, {HOUSEHOLD}:visible, {INVALID}:visible, {SUCCESS}:visible').first.wait_for(
+        page.locator(f'{LOGIN}:visible, {TOGGLE}:visible, {HOUSEHOLD}:visible, {INVALID}:visible, {SUCCESS}:visible, {EMAIL_CODE}:visible').first.wait_for(
             state="visible", timeout=CONTROL_TIMEOUT_MS
         )
+        if page.locator(EMAIL_CODE).is_visible():
+            logger.error("Netflix requires email verification; automation stopped")
+            return False
         if any(page.locator(selector).is_visible() for selector in (HOUSEHOLD, INVALID, SUCCESS)):
             logger.info("Netflix confirmation controls available; login not required")
             return True
@@ -78,6 +82,12 @@ def login_to_netflix(page):
         page.locator(PASSWORD).fill(NETFLIX_PASSWORD)
         page.locator(PASSWORD).press("Enter")
         logger.info("Submitted Netflix password login")
+        page.locator(f'{HOUSEHOLD}:visible, {INVALID}:visible, {SUCCESS}:visible, {EMAIL_CODE}:visible').first.wait_for(
+            state="visible", timeout=CONTROL_TIMEOUT_MS
+        )
+        if page.locator(EMAIL_CODE).is_visible():
+            logger.error("Netflix requires email verification; automation stopped")
+            return False
         return True
     except BrowserTimeout:
         logger.error("Netflix login or confirmation controls not ready")
