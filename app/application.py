@@ -5,6 +5,7 @@ import re
 import time
 import os
 import signal
+import random
 from uuid import uuid4
 from urllib.parse import urlsplit
 from imapclient import IMAPClient
@@ -12,6 +13,8 @@ from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright, Error as BrowserError, TimeoutError as BrowserTimeout
 from logger import setup_logger, setup_browser_trace
 from metrics import Metrics
+from browser_experiment import Experiment, ENGINES
+from selenium_browser import SeleniumBrowser
 
 
 load_dotenv()
@@ -28,6 +31,9 @@ metrics = Metrics()
 _browser = None
 _page = None
 _playwright = None
+_selenium = None
+_trial = None
+_active_engine = None
 CONTROL_TIMEOUT_MS = 10000
 BUTTON_TIMEOUT_MS = 5000
 LOGIN = 'input[name="userLoginId"]'
@@ -151,10 +157,7 @@ def get_page():
     return _page
 
 
-def confirmation_state(page):
-    """Return only bounded diagnostic values; never page text, URLs or credentials."""
-    try:
-        return page.evaluate("""() => {
+STATE_SCRIPT = """() => {
             const button = document.querySelector('button[data-uia="set-primary-location-action"]');
             let handler = false;
             for (let node = button; node; node = node.parentElement) {
@@ -170,18 +173,25 @@ def confirmation_state(page):
                 success_text_present: headings.some(node => /you[’']ve updated your netflix household/i.test(node.textContent)),
                 error_text_present: headings.some(node => /something went wrong|try again|unable to|sorry/i.test(node.textContent)),
                 login_present: !!document.querySelector('input[name="userLoginId"]')};
-        }""")
+        }"""
+
+
+def confirmation_state(page):
+    """Collect bounded values without affecting workflow behavior."""
+    try:
+        return page.evaluate(STATE_SCRIPT)
     except BrowserError:
         return {"snapshot_unavailable": True}
 
 
-def open_link_with_browser(body):
+def open_link_with_browser(body, run_id=None):
     """Confirm once, recognize terminal pages and retain only healthy browser state."""
     started = time.monotonic()
-    run_id = uuid4().hex
+    run_id = run_id or uuid4().hex
+    metrics.set("netflix_workflow_last_clicked", 0)
     phase = "input"
     def trace(event, **fields):
-        logger.info("Netflix browser trace", extra={"run_id": run_id, "event": event,
+        logger.info("Netflix browser trace", extra={"run_id": run_id, "engine": "playwright", "event": event,
             "phase": phase, "elapsed_seconds": round(time.monotonic() - started, 6), **fields})
     trace("started", warm_browser_present=_browser is not None)
     if not body:
@@ -244,6 +254,7 @@ def open_link_with_browser(body):
                 trace("click_starting", browser_state=confirmation_state(page))
                 page.locator(HOUSEHOLD).click(timeout=BUTTON_TIMEOUT_MS)
                 diagnostics["click_completed"] = True
+                metrics.set("netflix_workflow_last_clicked", 1)
                 trace("click_completed")
                 phase = "confirmation_result"
                 page.locator(f'{SUCCESS}:visible, {INVALID}:visible').first.wait_for(
@@ -258,7 +269,7 @@ def open_link_with_browser(body):
             succeeded = True
             logger.info("Netflix Household update succeeded")
             metrics.workflow_finished(True, time.monotonic() - started)
-            trace("finished", outcome="success")
+            trace("finished", outcome="success" if metrics.get("netflix_workflow_last_clicked") else "already_success")
             return "Success", content
         except BrowserTimeout:
             try:
@@ -298,6 +309,81 @@ def open_link_with_browser(body):
     return "Netflix update link not found", None
 
 
+def get_trial():
+    global _trial
+    if _trial is None:
+        _trial = Experiment(metrics.path.with_name("browser-experiment.sqlite"))
+    return _trial
+
+
+def get_selenium():
+    global _selenium
+    if _selenium is None:
+        _selenium = SeleniumBrowser(metrics, logger, NETFLIX_LOGIN, NETFLIX_PASSWORD, STATE_SCRIPT)
+    return _selenium
+
+
+def activate_engine(engine):
+    """Keep only one engine resident on the memory-constrained Pi."""
+    global _active_engine
+    if engine == "selenium":
+        if _browser is not None or _playwright is not None:
+            close_browser()
+    elif _selenium is not None and _selenium.driver is not None:
+        _selenium.close()
+    _active_engine = engine
+    metrics.set("netflix_browser_engine", 1 if engine == "selenium" else 2)
+
+
+def warm_browser():
+    # Initial warmup is random too, so the first email does not favor Playwright.
+    if _active_engine is None:
+        activate_engine(random.choice(ENGINES))
+    return get_selenium().get_browser() if _active_engine == "selenium" else get_page()
+
+
+def process_email(body, mark_seen):
+    """Persist one assignment before consuming mail; never retry with the other engine."""
+    trial = get_trial()
+    engine = random.choice(ENGINES)
+    run_id = trial.begin(engine)
+    logger.info("Netflix browser trace", extra={"run_id": run_id, "engine": engine,
+        "event": "assigned", "phase": "mail", "elapsed_seconds": 0})
+    try:
+        mark_seen()
+    except BaseException:
+        trial.finish(run_id, "mail_error", 0, 0, False)
+        trial.publish(metrics)
+        raise
+    started = time.monotonic()
+    outcome = "interrupted"
+    warm = False
+    starts = metrics.get("netflix_browser_start_success_total")
+    metrics.update(netflix_navigation_duration_seconds=0, netflix_workflow_last_clicked=0)
+    try:
+        activate_engine(engine)
+        warm = _browser is not None if engine == "playwright" else get_selenium().driver is not None
+        result = open_link_with_browser(body, run_id) if engine == "playwright" else get_selenium().run(body, run_id)
+        status = result[0]
+        outcome = {"Empty email body": "empty_body", "Netflix update link not found": "link_not_found",
+                   "Netflix login failed": "login_failed", "This link is no longer valid": "invalid_link",
+                   "Timeout waiting for Netflix confirmation": "timeout"}.get(status, "browser_error")
+        if status == "Success":
+            outcome = "success" if metrics.get("netflix_workflow_last_clicked") else "already_success"
+        return result
+    except Exception as exception:
+        outcome = "browser_error"
+        metrics.workflow_finished(False, time.monotonic() - started)
+        logger.error("Browser experiment workflow failed", extra={"run_id": run_id, "engine": engine,
+            "error_type": type(exception).__name__})
+        return "Browser workflow failed: " + type(exception).__name__, None
+    finally:
+        warm = warm and metrics.get("netflix_browser_start_success_total") == starts
+        trial.finish(run_id, outcome, time.monotonic() - started,
+                     metrics.get("netflix_navigation_duration_seconds"), warm)
+        trial.publish(metrics)
+
+
 def fetch_last_unseen_email(mail):
     """Process unseen Household messages on the existing UID-based connection."""
     started = time.monotonic()
@@ -319,8 +405,7 @@ def fetch_last_unseen_email(mail):
                 if part.get_content_type() == "text/plain":
                     payload = part.get_payload(decode=True)
                     body = payload.decode(part.get_content_charset() or 'utf-8', errors='replace') if payload else None
-                    mail.add_flags([message_id], [b'\\Seen'])
-                    open_link_with_browser(body)
+                    process_email(body, lambda: mail.add_flags([message_id], [b'\\Seen']))
                     break
         finally:
             metrics.set("netflix_matching_emails_pending", 0)
@@ -346,7 +431,7 @@ def watch_mailbox():
                 started = time.monotonic()
                 fetch_last_unseen_email(mail)
                 try:
-                    get_page()
+                    warm_browser()
                 except Exception:
                     logger.warning("Browser warmup failed; will retry")
                 mail.idle()
@@ -377,9 +462,13 @@ def stop_watcher(_signum, _frame):
 if __name__ == "__main__":
     setup_browser_trace(logger, metrics.path.with_name("netflix-browser-traces.jsonl"))
     signal.signal(signal.SIGTERM, stop_watcher)
+    get_trial().recover()
+    get_trial().publish(metrics)
     metrics.update(service_up=1)
     try:
         watch_mailbox()
     finally:
         close_browser()
+        if _selenium is not None:
+            _selenium.close()
         metrics.set("service_up", 0)

@@ -1,3 +1,4 @@
 playwright==1.64.1
 python-dotenv
 IMAPClient==3.0.1
+selenium==4.51.0

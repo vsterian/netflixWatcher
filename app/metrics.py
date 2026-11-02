@@ -64,12 +64,18 @@ class Metrics:
             "netflix_browser_start_failure_total": 0,
             "netflix_browser_last_start_timestamp_seconds": 0,
             "netflix_workflow_stage": 0,
+            "netflix_workflow_last_clicked": 0,
+            "netflix_browser_engine": 0,
             "netflix_workflow_success_total": 0,
             "netflix_workflow_failure_total": 0,
             "netflix_workflow_last_success": -1,
             "netflix_workflow_last_timestamp_seconds": 0,
             "netflix_workflow_last_duration_seconds": 0,
         }
+
+    def get(self, name: str) -> float:
+        with self._lock:
+            return self._values.get(name, 0)
 
     def publish(self) -> None:
         with self._lock:

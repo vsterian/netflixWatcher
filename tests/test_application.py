@@ -71,7 +71,7 @@ class MailboxTests(unittest.TestCase):
             replacement = Metrics(Path(directory) / "netflix.prom")
             mailbox = MatchingMailbox()
             with patch.object(application, "metrics", replacement), patch.object(
-                application, "open_link_with_browser", return_value=("Success", None)
+                application, "process_email", side_effect=lambda body, mark_seen: mark_seen()
             ):
                 application.fetch_last_unseen_email(mailbox)
             published = values(replacement.path)
@@ -84,7 +84,7 @@ class MailboxTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             replacement = Metrics(Path(directory) / "netflix.prom")
             with patch.object(application, "metrics", replacement), patch.object(
-                application, "open_link_with_browser", side_effect=RuntimeError("failure")
+                application, "process_email", side_effect=RuntimeError("failure")
             ):
                 with self.assertRaises(RuntimeError):
                     application.fetch_last_unseen_email(MatchingMailbox())
@@ -100,7 +100,7 @@ class MailboxTests(unittest.TestCase):
                 application, "IMAPClient", return_value=mailbox
             ) as connect, patch.object(application, "get_missing_env_vars", return_value=[]), patch.object(
                 application, "fetch_last_unseen_email"
-            ) as scan, patch.object(application, "get_page") as warmup:
+            ) as scan, patch.object(application, "warm_browser") as warmup:
                 application._browser = Mock()
                 with self.assertRaises(SystemExit):
                     application.watch_mailbox()
@@ -130,7 +130,7 @@ class MailboxTests(unittest.TestCase):
                     application, "IMAPClient", side_effect=outcomes
                 ) as connect, patch.object(application, "get_missing_env_vars", return_value=[]), patch.object(
                     application, "fetch_last_unseen_email"
-                ), patch.object(application, "get_page"), patch.object(application.time, "sleep") as sleep:
+                ), patch.object(application, "warm_browser"), patch.object(application.time, "sleep") as sleep:
                     application._browser = Mock()
                     with self.assertRaises(SystemExit):
                         application.watch_mailbox()
@@ -211,7 +211,7 @@ class MailboxTests(unittest.TestCase):
         mailbox.fetch.return_value = {1: {b'BODY[]': b'Subject: Other Netflix notice\r\n\r\nbody'}}
         with TemporaryDirectory() as directory:
             with patch.object(application, "metrics", Metrics(Path(directory) / "netflix.prom")), patch.object(
-                application, "open_link_with_browser"
+                application, "process_email"
             ) as workflow:
                 application.fetch_last_unseen_email(mailbox)
         mailbox.add_flags.assert_not_called()
@@ -226,7 +226,7 @@ class MailboxTests(unittest.TestCase):
         with TemporaryDirectory() as directory:
             replacement = Metrics(Path(directory) / "netflix.prom")
             with patch.object(application, "metrics", replacement), patch.object(
-                application, "open_link_with_browser", return_value=("Success", None)
+                application, "process_email", side_effect=lambda body, mark_seen: mark_seen()
             ) as workflow:
                 application.fetch_last_unseen_email(mailbox)
             self.assertEqual(workflow.call_count, 2)
