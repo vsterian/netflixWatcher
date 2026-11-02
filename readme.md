@@ -66,7 +66,7 @@ docker-compose up -d
 
 ## Workflow
 
-1. The script connects to Gmail every 5 seconds to fetch unread emails.
+1. The script keeps one authenticated Gmail connection, waits for IMAP IDLE notifications, and reconciles unread mail at least every 10 seconds while idle.
 2. If an unread email from Netflix is found, it extracts the body and processes it to confirm the Netflix Household update.
 3. The confirmation process is automated using Playwright.
 4. If any errors occur during the process, they are logged in the console.
@@ -79,7 +79,7 @@ docker-compose up -d
 ## Observability
 
 Worker atomically publishes Prometheus text metrics to
-`/var/lib/rpi-observability/netflix-watcher/netflix-watcher.prom`. Scheduler
+`/var/lib/rpi-observability/apps/netflix-watcher/netflix-watcher.prom`. Scheduler
 publishes separate runtime and restart-attempt state to
 `netflix-watcher-scheduler.prom`. Metrics cover process and polling heartbeat,
 successful IMAP access, pending matching messages, Playwright startup, workflow
@@ -94,7 +94,7 @@ Common operational metrics use `service_up`,
 label.
 
 Successful IMAP polls with zero matching messages represent healthy idle state.
-No email is not a failure. Workflow stage values are `0` idle, `1` polling,
+No email is not a failure. Workflow stage values are `0` idle,
 `2` Playwright startup, `3` login, `4` confirmation, `5` success, and `6` failure.
 
 Observability is part of feature definition of done. Any new business workflow,
@@ -102,6 +102,6 @@ dependency, schedule, retry policy, or failure mode must update emitted metrics,
 central Grafana dashboard/alerts, tests, and project Wiki documentation. If
 dashboard behavior is unaffected, change documentation must state why.
 
-Scheduler intentionally has no Docker socket mount. Its existing restart attempt
-therefore reports failure unless deployment supplies a separately approved,
-least-privilege restart mechanism.
+Scheduler uses the Docker CLI and existing Docker socket mount to restart the
+watcher at its configured time. Browser migration preserves this deployment
+contract and exports scheduler success/failure metrics separately.
