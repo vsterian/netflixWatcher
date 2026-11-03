@@ -160,11 +160,14 @@ class SeleniumBrowser:
                     if len(request_meta) > 256:
                         request_meta.pop(next(iter(request_meta)))
                 elif method == "Network.loadingFailed":
-                    diagnostics["request_failures"] += 1
                     error = params.get("errorText", "")
                     if not isinstance(error, str):
                         error = ""
                     meta = request_meta.pop(request_id, {})
+                    if params.get("canceled") is True or error == "net::ERR_ABORTED":
+                        trace("request_aborted", error_code="net::ERR_ABORTED", **meta)
+                        continue
+                    diagnostics["request_failures"] += 1
                     trace("request_failed", error_code=error if re.fullmatch(r"net::ERR_[A-Z_]+", error) else "unknown",
                           **meta)
                 elif method == "Network.responseReceived":
