@@ -1,7 +1,9 @@
 """The warm/eager Selenium implementation, with the same confirmation gates."""
+import json
 import re
 import shutil
 import time
+from urllib.parse import urlsplit
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from selenium.webdriver import Keys
@@ -48,6 +50,7 @@ class SeleniumBrowser:
         started = time.monotonic()
         options = webdriver.ChromeOptions()
         options.page_load_strategy = "eager"
+        options.set_capability("goog:loggingPrefs", {"performance": "ALL", "browser": "SEVERE"})
         options.binary_location = shutil.which("chromium") or shutil.which("google-chrome") or ""
         for argument in ("--headless", "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"):
             options.add_argument(argument)
@@ -122,9 +125,76 @@ class SeleniumBrowser:
             self.logger.info("Netflix browser trace", extra={"run_id": run_id, "engine": "selenium",
                 "event": event, "phase": phase, "elapsed_seconds": round(time.monotonic() - started, 6), **fields})
 
+        diagnostics = {"request_failures": 0, "http_errors": 0, "browser_console_errors": 0,
+                       "performance_log_available": True, "browser_log_available": True}
+        request_meta = {}
+
+        def collect_diagnostics():
+            try:
+                entries = self.driver.get_log("performance")
+            except Exception:
+                entries = []
+                diagnostics["performance_log_available"] = False
+            for entry in entries:
+                try:
+                    event = json.loads(entry["message"])["message"]
+                    method, params = event["method"], event["params"]
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if not isinstance(params, dict):
+                    continue
+                request_id = params.get("requestId")
+                if method == "Network.requestWillBeSent":
+                    request = params.get("request", {})
+                    if not isinstance(request, dict):
+                        continue
+                    url = urlsplit(request.get("url", "") if isinstance(request.get("url", ""), str) else "")
+                    document_url = params.get("documentURL", "")
+                    current = urlsplit(document_url if isinstance(document_url, str) else "")
+                    request_meta[request_id] = {
+                        "resource_type": params.get("type", "unknown"),
+                        "method": request.get("method") if request.get("method") in
+                            ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS") else "OTHER",
+                        "same_origin": (url.scheme, url.netloc) == (current.scheme, current.netloc),
+                    }
+                    if len(request_meta) > 256:
+                        request_meta.pop(next(iter(request_meta)))
+                elif method == "Network.loadingFailed":
+                    diagnostics["request_failures"] += 1
+                    error = params.get("errorText", "")
+                    if not isinstance(error, str):
+                        error = ""
+                    meta = request_meta.pop(request_id, {})
+                    trace("request_failed", error_code=error if re.fullmatch(r"net::ERR_[A-Z_]+", error) else "unknown",
+                          **meta)
+                elif method == "Network.responseReceived":
+                    response = params.get("response", {})
+                    if not isinstance(response, dict):
+                        continue
+                    resource_type = params.get("type", "unknown")
+                    try:
+                        status = int(response.get("status", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    meta = request_meta.pop(request_id, {"resource_type": resource_type})
+                    if status >= 400:
+                        diagnostics["http_errors"] += 1
+                        trace("http_error", status=status, **meta)
+                    elif resource_type in ("XHR", "Fetch"):
+                        trace("response", status=status, **meta)
+            try:
+                browser_logs = self.driver.get_log("browser")
+            except Exception:
+                browser_logs = []
+                diagnostics["browser_log_available"] = False
+            for entry in browser_logs:
+                if isinstance(entry, dict) and entry.get("level") == "SEVERE":
+                    diagnostics["browser_console_errors"] += 1
+                    trace("browser_console_error")
+
         def finish(outcome, result, content=None):
             self.metrics.workflow_finished(outcome in ("success", "already_success"), time.monotonic() - started)
-            trace("finished", outcome=outcome)
+            trace("finished", outcome=outcome, **diagnostics)
             return result, content
 
         trace("started", warm_browser_present=self.driver is not None)
@@ -139,20 +209,25 @@ class SeleniumBrowser:
             self.metrics.set("netflix_workflow_stage", 2)
             driver = self.get_browser()
             trace("browser_ready")
+            collect_diagnostics()
             phase = "navigation"
             navigated = time.monotonic()
             driver.get(link)
+            collect_diagnostics()
             self.metrics.set("netflix_navigation_duration_seconds", time.monotonic() - navigated)
             trace("navigation_completed")
             phase = "login"
             self.metrics.set("netflix_workflow_stage", 3)
             trace("login_starting")
             if not self.login_to_netflix():
+                collect_diagnostics()
                 return finish("login_failed", "Netflix login failed", driver.page_source)
+            collect_diagnostics()
             trace("login_completed")
             phase = "confirmation_controls"
             self.metrics.set("netflix_workflow_stage", 4)
             self.wait_any(("household", "invalid", "success"), 5)
+            collect_diagnostics()
             if not self.visible("invalid") and not self.visible("success"):
                 phase = "confirmation_click"
                 trace("click_starting", browser_state=self.state())
@@ -161,7 +236,10 @@ class SeleniumBrowser:
                 self.metrics.set("netflix_workflow_last_clicked", 1)
                 trace("click_completed")
                 phase = "confirmation_result"
-                self.wait_any(("success", "invalid"), 10)
+                try:
+                    self.wait_any(("success", "invalid"), 10)
+                finally:
+                    collect_diagnostics()
             if self.visible("invalid"):
                 return finish("invalid_link", "This link is no longer valid", driver.page_source)
             content = driver.page_source
@@ -169,9 +247,11 @@ class SeleniumBrowser:
             return finish("success" if self.metrics.get("netflix_workflow_last_clicked") else "already_success",
                           "Success", content)
         except TimeoutException:
+            collect_diagnostics()
             trace("timeout_state", browser_state=self.state())
             return finish("timeout", "Timeout waiting for Netflix confirmation")
         except Exception as exception:
+            collect_diagnostics()
             trace("browser_error", error_type=type(exception).__name__)
             return finish("browser_error", "Browser workflow failed: " + type(exception).__name__)
         finally:
