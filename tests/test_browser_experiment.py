@@ -111,7 +111,7 @@ class ExperimentTests(unittest.TestCase):
         reader.db.close()
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
 
-    def test_first_week_window_and_no_automatic_winner_switch(self):
+    def test_review_deadline_does_not_hide_later_assignments_or_switch_engine(self):
         run = self.trial.begin('playwright')
         self.trial.finish(run, 'success', 3, 2, False)
         with patch('browser_experiment.time.time', return_value=self.trial.ends + 1):
@@ -119,8 +119,35 @@ class ExperimentTests(unittest.TestCase):
             report = self.trial.report()
         self.assertTrue(report['review_due'])
         self.assertFalse(report['automatic_switch'])
-        self.assertEqual(report['engines']['selenium']['assigned'], 0)
+        self.assertEqual(report['engines']['selenium']['assigned'], 1)
         self.assertEqual(report['engines']['playwright']['successes'], 1)
+
+    def test_new_cohort_preserves_history_and_survives_restart(self):
+        run = self.trial.begin('selenium')
+        self.trial.finish(run, 'timeout', 30, 2, False)
+        with patch('browser_experiment.time.time', return_value=self.trial.ends + 1):
+            self.trial.new_cohort()
+            self.trial.finish(self.trial.begin('playwright'), 'success', 3, 2, True)
+        reader = Experiment(self.path)
+        self.assertEqual(reader.started, self.trial.started)
+        current = reader.report()
+        self.assertEqual(current['scope'], 'current_cohort')
+        self.assertEqual(current['engines']['selenium']['assigned'], 0)
+        self.assertEqual(current['engines']['playwright']['successes'], 1)
+        history = reader.report(all_history=True)
+        self.assertEqual(history['scope'], 'all_history')
+        self.assertEqual(history['engines']['selenium']['failures'], 1)
+        self.assertEqual(history['engines']['playwright']['successes'], 1)
+        self.assertEqual(reader.db.execute('SELECT COUNT(*) FROM runs').fetchone()[0], 2)
+        reader.db.close()
+
+    def test_new_cohort_refuses_pending_work_without_changing_boundary(self):
+        started = self.trial.started
+        self.trial.begin('selenium')
+        with self.assertRaisesRegex(ValueError, 'pending'):
+            self.trial.new_cohort()
+        self.assertEqual(self.trial.started, started)
+        self.assertEqual(self.trial.db.execute('SELECT COUNT(*) FROM trial').fetchone()[0], 1)
 
     def test_summary_separates_reliability_and_successful_warm_cold_latency(self):
         for outcome, duration, warm in [('success', 2, True), ('success', 8, False),

@@ -1,4 +1,4 @@
-"""Durable, secret-free results for the seven-day browser comparison."""
+"""Durable, secret-free browser cohorts with an advisory seven-day review."""
 import argparse
 import json
 import math
@@ -29,7 +29,7 @@ class Experiment:
                 run_id TEXT PRIMARY KEY, engine TEXT NOT NULL, started REAL NOT NULL,
                 finished REAL, outcome TEXT, duration REAL, navigation REAL, warm INTEGER
             )""")
-        self.started = self.db.execute("SELECT started FROM trial").fetchone()[0]
+        self.started = self.db.execute("SELECT MAX(started) FROM trial").fetchone()[0]
         self.ends = self.started + 7 * 86400
 
     def begin(self, engine):
@@ -57,10 +57,21 @@ class Experiment:
             self.db.execute("UPDATE runs SET finished=?, outcome='interrupted' WHERE finished IS NULL",
                             (time.time(),))
 
-    def report(self):
+    def new_cohort(self):
+        """Start a new comparison without deleting prior runs or changing assignment."""
+        with self.db:
+            if self.db.execute("SELECT 1 FROM runs WHERE finished IS NULL LIMIT 1").fetchone():
+                raise ValueError("Cannot start a cohort while a run is pending")
+            self.started = time.time()
+            self.db.execute("INSERT INTO trial VALUES (?)", (self.started,))
+        self.ends = self.started + 7 * 86400
+
+    def report(self, all_history=False):
+        started = self.db.execute("SELECT MIN(started) FROM trial").fetchone()[0] if all_history else self.started
         rows = self.db.execute("""SELECT engine, outcome, duration, navigation, warm FROM runs
-            WHERE started >= ? AND started < ? ORDER BY started""", (self.started, self.ends)).fetchall()
-        report = {"started_utc": datetime.fromtimestamp(self.started, timezone.utc).isoformat(),
+            WHERE started >= ? ORDER BY started""", (started,)).fetchall()
+        report = {"scope": "all_history" if all_history else "current_cohort",
+                  "started_utc": datetime.fromtimestamp(started, timezone.utc).isoformat(),
                   "review_utc": datetime.fromtimestamp(self.ends, timezone.utc).isoformat(),
                   "review_due": time.time() >= self.ends, "automatic_switch": False, "engines": {}}
         for engine in ENGINES:
@@ -99,7 +110,13 @@ class Experiment:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("database", type=Path)
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--all-history", action="store_true", help="Include every preserved cohort")
+    scope.add_argument("--new-cohort", action="store_true", help="Start a fresh comparison; preserve all history")
     args = parser.parse_args()
     if not args.database.is_file():
         parser.error("Experiment database does not exist")
-    print(json.dumps(Experiment(args.database).report(), indent=2))
+    experiment = Experiment(args.database)
+    if args.new_cohort:
+        experiment.new_cohort()
+    print(json.dumps(experiment.report(all_history=args.all_history), indent=2))

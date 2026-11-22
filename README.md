@@ -92,16 +92,19 @@ this 2 GiB Pi. Cookies remain volatile and are never copied between engines.
 `browser-experiment.sqlite`, next to the configured metrics file, retains
 assignments, run IDs, engine, timestamps, outcome, elapsed workflow/navigation
 seconds and warm/cold status. Mode 0600; no email identifiers, links, account data
-or raw pages. Window begins once when production first creates this database;
-restarts preserve its original deadline and results. The report selects runs
-assigned within the first seven days. Assignment continues randomly after the
-deadline until manual review chooses a permanent implementation. There is no
-automatic winner switch.
+or raw pages. The initial cohort begins when production creates this database;
+restarts preserve the latest explicit cohort boundary and all results. The report
+selects runs assigned since the latest explicit cohort start, including runs after the seven-day
+review date. The review date is advisory; it never freezes reporting. Assignment
+continues randomly until manual review chooses a permanent implementation.
+There is no automatic winner switch.
 
 Periodic review on the Pi:
 
 ```sh
 docker exec netflixwatcher python3 /app/app/browser_experiment.py /metrics/browser-experiment.sqlite
+# All preserved cohorts, including pre-fix failures:
+docker exec netflixwatcher python3 /app/app/browser_experiment.py /metrics/browser-experiment.sqlite --all-history
 ```
 
 Report includes per-engine assigned/eligible counts, successes, failures,
@@ -129,3 +132,11 @@ experiment metrics persist through process restarts; run IDs remain in logs and
 SQLite only. Playwright retains network/JavaScript events; Selenium records native
 stage, click, safe browser-state and sanitized error-class events. Native Selenium
 exceptions, URLs and page content are never logged.
+
+Start a new cohort after a material workflow fix with
+`browser_experiment.py /metrics/browser-experiment.sqlite --new-cohort` in a maintenance container using
+the existing metrics volume. Stop the watcher first, back up SQLite, then restart
+the watcher after the command. Pending runs block cohort creation. Prior runs
+and cohort boundaries remain intact; normal restarts reuse the latest boundary.
+The dashboard shows cohort start and warm/cold successful sample counts; compare
+latency only between groups with matching browser-start conditions.
