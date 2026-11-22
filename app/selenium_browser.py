@@ -17,9 +17,9 @@ CONTROLS = {
     "password": (By.CSS_SELECTOR, 'input[name="password"]'),
     "toggle": (By.CSS_SELECTOR, 'button[data-uia="login-toggle-button"]'),
     "continue": (By.CSS_SELECTOR, 'button[data-uia="continue-button"]'),
-    "household": (By.CSS_SELECTOR, 'button[data-uia="set-primary-location-action"]'),
-    "invalid": (By.XPATH, '//h1[normalize-space(.)="This link is no longer valid"]'),
-    "success": (By.XPATH, '//h1[normalize-space(.)="You’ve updated your Netflix Household"]'),
+    "household": (By.CSS_SELECTOR, 'button:is([data-uia="set-primary-location-action"], [data-uia="update-household-confirm-cta"])'),
+    "invalid": (By.XPATH, '//*[self::h1 or self::h2][normalize-space(.)="This link is no longer valid"]'),
+    "success": (By.XPATH, '//h1[normalize-space(.)="You’ve updated your Netflix Household"] | //*[@data-uia="update-household-success-heading"]'),
     "code": (By.XPATH, '//h1[normalize-space(.)="Enter the code we sent to your email"]'),
 }
 

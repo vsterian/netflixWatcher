@@ -39,9 +39,9 @@ BUTTON_TIMEOUT_MS = 5000
 LOGIN = 'input[name="userLoginId"]'
 PASSWORD = 'input[name="password"]'
 TOGGLE = 'button[data-uia="login-toggle-button"]'
-HOUSEHOLD = 'button[data-uia="set-primary-location-action"]'
-INVALID = 'h1:text-is("This link is no longer valid")'
-SUCCESS = 'h1:text-is("You’ve updated your Netflix Household")'
+HOUSEHOLD = 'button:is([data-uia="set-primary-location-action"], [data-uia="update-household-confirm-cta"])'
+INVALID = ':is(h1, h2):text-is("This link is no longer valid")'
+SUCCESS = ':is(h1:text-is("You’ve updated your Netflix Household"), [data-uia="update-household-success-heading"])'
 EMAIL_CODE = 'h1:text-is("Enter the code we sent to your email")'
 
 
@@ -158,7 +158,7 @@ def get_page():
 
 
 STATE_SCRIPT = """() => {
-            const button = document.querySelector('button[data-uia="set-primary-location-action"]');
+            const button = document.querySelector('button:is([data-uia="set-primary-location-action"], [data-uia="update-household-confirm-cta"])');
             let handler = false;
             for (let node = button; node; node = node.parentElement) {
                 for (const key of Object.keys(node)) {
@@ -166,7 +166,7 @@ STATE_SCRIPT = """() => {
                         typeof node[key]?.onClick === 'function') handler = true;
                 }
             }
-            const headings = [...document.querySelectorAll('h1')];
+            const headings = [...document.querySelectorAll('h1, h2')];
             return {ready_state: document.readyState, household_present: !!button,
                 household_disabled: button ? button.disabled : null, react_click_handler: handler,
                 heading_count: headings.length,
@@ -387,7 +387,8 @@ def process_email(body, mark_seen):
 def fetch_last_unseen_email(mail):
     """Process unseen Household messages on the existing UID-based connection."""
     started = time.monotonic()
-    message_ids = mail.search(['UNSEEN', 'FROM', NETFLIX_EMAIL_SENDER])
+    message_ids = mail.search(['UNSEEN', 'FROM', NETFLIX_EMAIL_SENDER,
+                               'SUBJECT', 'Important: How to update your Netflix Household'])
     metrics.poll_success(0, time.monotonic() - started)
     for message_id in message_ids:
         data = mail.fetch([message_id], ['BODY.PEEK[]'])

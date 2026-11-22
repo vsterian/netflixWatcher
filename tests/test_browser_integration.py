@@ -20,12 +20,14 @@ UPDATED = "You’ve updated your Netflix Household"
 EXPIRED = "This link is no longer valid"
 
 
-def button(case, outcome=UPDATED, delay=0):
+def button(case, outcome=UPDATED, delay=0, current=False):
     action = "fetch('/clicked/" + case + "', {method:'POST'})"
     if outcome is not None:
-        heading = json.dumps('<h1>' + outcome + '</h1>')
+        heading = json.dumps(('<h2 data-uia="update-household-success-heading">' + outcome + '</h2>')
+                             if current else '<h1>' + outcome + '</h1>')
         action += ".then(()=>setTimeout(()=>{document.body.innerHTML=" + heading + ";}," + str(delay) + "))"
-    return '<button data-uia="set-primary-location-action" onclick="' + html.escape(action, quote=True) + '">Confirm</button>'
+    control = 'update-household-confirm-cta' if current else 'set-primary-location-action'
+    return '<button data-uia="' + control + '" onclick="' + html.escape(action, quote=True) + '">Confirm</button>'
 
 
 def form(case, delayed=False):
@@ -46,6 +48,8 @@ class BrowserParityTests(unittest.TestCase):
         cls.code_requests = 0
         cls.cases = {
             'authenticated': button('authenticated'),
+            'current-household': button('current-household', current=True),
+            'current-invalid': '<h2>' + EXPIRED + '</h2>',
             'delayed-controls': '<div>Loading</div><script>setTimeout(()=>document.body.innerHTML=' + json.dumps(button('delayed-controls')) + ',150)</script>',
             'delayed-result': button('delayed-result', delay=150),
             'disabled-later': button('disabled-later').replace('<button ', '<button disabled ') + '<script>setTimeout(()=>document.querySelector("button").disabled=false,150)</script>',
@@ -138,6 +142,13 @@ class BrowserParityTests(unittest.TestCase):
     def test_authenticated_confirmation(self):
         self.assert_success('authenticated')
         self.assertEqual(values(self.metrics.path)['netflix_browser_start_success_total'], 1)
+
+    def test_current_household_controls_and_success_heading(self):
+        self.assert_success('current-household')
+
+    def test_current_invalid_heading(self):
+        self.assertEqual(self.run_case('current-invalid')[0], EXPIRED)
+        self.assertEqual(sum(self.clicked.values()), 0)
 
     def test_delayed_controls_and_confirmation(self):
         for case in ('delayed-controls', 'delayed-result'):

@@ -218,6 +218,19 @@ class MailboxTests(unittest.TestCase):
         workflow.assert_not_called()
 
 
+    def test_search_filters_subject_before_fetching_unread_notices(self):
+        mailbox = Mock()
+        mailbox.search.return_value = []
+        with TemporaryDirectory() as directory:
+            with patch.object(application, "metrics", Metrics(Path(directory) / "netflix.prom")):
+                application.fetch_last_unseen_email(mailbox)
+        mailbox.search.assert_called_once_with([
+            'UNSEEN', 'FROM', application.NETFLIX_EMAIL_SENDER,
+            'SUBJECT', 'Important: How to update your Netflix Household',
+        ])
+        mailbox.fetch.assert_not_called()
+
+
     def test_multiple_messages_use_stable_uids_and_peek(self):
         mailbox = Mock()
         mailbox.search.return_value = [11, 22]
